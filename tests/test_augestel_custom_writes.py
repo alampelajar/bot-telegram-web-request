@@ -294,3 +294,39 @@ async def test_add_number_rejects_count_above_live_metadata_without_post(
             }
         )
     assert [request.method for request in seen] == ["GET", "GET"]
+
+
+
+@pytest.mark.asyncio
+async def test_list_terminations_returns_safe_choices_without_request_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.method == "GET" and request.url.path == "/Switchfy/client/numbers":
+            return _website_page_response()
+        if request.method == "GET" and request.url.path == "/Switchfy/client/numbers/terminations":
+            return _termination_metadata_response()
+        return httpx.Response(404, json={"success": False})
+
+    settings = _custom_write_settings()
+    monkeypatch.setattr(augestel, "get_settings", lambda: settings)
+    client = AugestelClient(
+        base_url=settings.augestel_api_base_url,
+        api_key=SecretStr("test-only-key"),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.list_terminations()
+
+    assert result["success"] is True
+    assert [request.method for request in seen] == ["GET", "GET"]
+    term = result["terminations"][0]
+    assert term["id"] == "12345"
+    assert term["terms"][0]["id"] == "123456"
+    assert term["number_sort_type"] == "random"
+    assert "request_token" not in term
+    assert "request_token" not in term["terms"][0]
+    assert seen[1].headers["X-CSRF-Token"] == "fresh-csrf-token"

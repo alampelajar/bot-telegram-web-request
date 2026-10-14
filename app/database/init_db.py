@@ -19,6 +19,7 @@ def _ensure_legacy_columns(connection) -> None:
         },
         "website_accounts": {
             "updated_at": datetime_type,
+            "api_key_encrypted": "TEXT",
         },
     }
 

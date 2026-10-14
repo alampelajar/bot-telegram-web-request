@@ -30,7 +30,7 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Set `BOT_TOKEN` in `.env`. Local development uses SQLite by default, so you do not need to start PostgreSQL separately. If you already have an older `.env`, update `DATABASE_URL` to:
+Set `BOT_TOKEN` in `.env`. Local development uses SQLite by default, so you do not need to start PostgreSQL separately. The startup routine creates missing tables and adds the current compatibility columns to an older local database without deleting existing data. If you already have an older `.env`, update `DATABASE_URL` to:
 
 ```text
 DATABASE_URL=sqlite+aiosqlite:///./data/automatic_web_controller.db

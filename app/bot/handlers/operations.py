@@ -275,10 +275,20 @@ async def terminations_command(message: Message) -> None:
         return
     except AugestelIntegrationError as exc:
         logger.warning("Augestel termination metadata request failed: %s", str(exc))
-        await message.answer(
-            "Tidak dapat membaca daftar termination dari rute website. "
-            f"{escape(str(exc))}"
-        )
+        if "did not authorize the website page" in str(exc) or "HTTP 403" in str(exc):
+            await message.answer(
+                "<b>API Key tidak memiliki akses ke rute website Augestel.</b>\\n"
+                "API Key kamu tetap bisa digunakan untuk endpoint API v1 seperti My Numbers, "
+                "tetapi saat ini tidak diizinkan membuka halaman termination website. "
+                "Tidak ada Add Number/Return All request yang dikirim.\\n\\n"
+                "Jangan mencoba memakai token dari HAR. Minta support Augestel mengonfirmasi "
+                "mekanisme autentikasi resmi untuk termination metadata, Add Number, dan Return All."
+            )
+        else:
+            await message.answer(
+                "Tidak dapat membaca daftar termination dari rute website. "
+                f"{escape(str(exc))}"
+            )
         return
     except Exception as exc:
         logger.error(

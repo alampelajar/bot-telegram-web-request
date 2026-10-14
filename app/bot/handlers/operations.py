@@ -267,7 +267,7 @@ async def add_number_command(message: Message, state: FSMContext) -> None:
             "<b>➕ Add Number</b>\n\n"
             "Format: <code>/addnumber &lt;termination_id&gt; "
             "&lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\n"
-            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\n\n"
+            "Contoh format: <code>/addnumber 12345 123456 5 random</code>\n\n"
             "ID harus berasal dari informasi akun/terminasi Augestel kamu. Nilai contoh di atas "
             "hanya ilustrasi. Setelah validasi, bot akan menampilkan ringkasan dan meminta konfirmasi. "
             "Endpoint website yang teramati belum menjadi API publik terdokumentasi, sehingga eksekusi "
@@ -528,8 +528,8 @@ async def add_menu(query: CallbackQuery) -> None:
             "<b>➕ Add Number</b>\n\n"
             "Kirim perintah dengan format:\n"
             "<code>/addnumber &lt;termination_id&gt; &lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\n"
-            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\n\n"
-            "Nilai ID dan opsi sort harus sesuai data akun Augestel. Bot akan meminta konfirmasi sebelum mengirim request."
+            "Contoh format: <code>/addnumber 12345 123456 5 random</code>\n\n"
+            "termination_id dan termination_term_id harus berupa ID numerik dari akun Augestel; sort_type harus cocok dengan number_sort_type pada metadata termination. Bot akan meminta konfirmasi sebelum mengirim request."
         )
 
 

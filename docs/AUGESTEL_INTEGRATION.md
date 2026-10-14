@@ -6,23 +6,34 @@ Observed browser request paths from user-provided HAR files:
 - Export: `GET /Switchfy/client/numbers/export`
 - Return All: `POST /Switchfy/client/numbers/bulk-return-all`
 
-These are observed website routes, not confirmation of a supported public API.
+These are observed website routes, not confirmation of supported public API endpoints. Do not call these browser-only routes with the API key unless the provider's API documentation explicitly lists them.
 
 ## Current connection behavior
 
-The bot registers Telegram users and stores a per-user Augestel connection state. Clicking Connect Account records `auth_method_required`. This is **not** a successful login and does not create a live Augestel session.
+The bot registers Telegram users and stores a per-user Augestel connection state. The existing Connect Account action records `auth_method_required`; it does not start a browser login and does not establish an API connection.
 
-Before implementing actual login:
-1. Confirm Augestel permits the integration and identify an approved authentication method.
-2. Confirm the supported account-scoped auth method and account isolation strategy.
-3. Identify how CSRF/request tokens are obtained, scoped, and refreshed without logging or hardcoding them.
-4. Verify request payloads and response schemas using non-destructive operations first.
-5. Do not ask users to send their passwords, cookies, or browser tokens via Telegram.
-6. Require explicit confirmation for Add Number and Return All.
-7. Never blindly retry a timed-out Return All; determine whether the prior operation completed.
-8. Never commit HAR files, cookies, bearer tokens, passwords, or export data.
+The user-provided Augestel API documentation states that API requests use Bearer authentication:
 
-The adapter intentionally raises an error rather than sending guessed requests until the above are confirmed.
+```http
+Authorization: Bearer YOUR_API_KEY
+```
+
+Configuration added to the application:
+- `AUGESTEL_API_KEY`: stored as a Pydantic `SecretStr`, read from local environment configuration.
+- `AUGESTEL_API_BASE_URL`: must be copied from the provider's API documentation; it is intentionally blank by default rather than guessed.
+- `AUGESTEL_INTEGRATION_ENABLED`: remains `false` by default.
+
+The integration client now has a read-only `get_json(path)` foundation that uses the Bearer header, validates HTTPS and the Augestel host, rejects redirects, and avoids printing response bodies or credentials in errors. It does not yet call any real endpoint because the documented Base URL and endpoint paths have not been supplied.
+
+Before implementing feature operations:
+1. Copy the exact API Base URL and endpoint paths from the official docs.
+2. Verify documented request parameters and response schemas with read-only calls first.
+3. Keep the API key in local `.env` or a secret manager; never in chat, source code, logs, or the repository.
+4. Require explicit confirmation for write actions such as Add Number and Return All.
+5. Never blindly retry a timed-out Return All; first determine whether the provider completed it.
+6. Do not use browser cookies, CSRF tokens, or challenge payloads for the API client.
+
+Actual Add Number submission, export download, and Return All remain unimplemented and blocked.
 
 
 ## Findings from `augestel.com.login.har` (2026-10-14)
@@ -77,7 +88,7 @@ The redirects and subsequent successful page/API loads are consistent with a suc
 
 **Security note:** this HAR includes the login request body with an email/password form. Do not commit or forward the raw HAR, and never copy its credential, CSRF, or session values into source code, bot messages, logs, or documentation. If the HAR was shared or stored somewhere not trusted, change the account password and revoke active sessions where Augestel provides that option.
 
-This capture does not show Add Number, Export, or Return All being triggered. The login path is now observed, but it is still a website form route—not confirmation of a supported public API or permission to automate password-based login. Before implementing authentication, confirm Augestel's approved integration method and session-handling rules. Do not bypass challenge/anti-abuse controls or replay sensitive values from HAR.
+This capture does not show Add Number, Export, or Return All being triggered. The website form route is not needed when using the documented API-key authentication scheme. Use the API's documented Bearer header rather than scraping website sessions. The exact API Base URL and endpoint contracts still need to be taken from the API documentation; do not guess them. Do not bypass challenge/anti-abuse controls or replay sensitive values from HAR.
 
 
 ## Add Number draft validation (2026-10-14)
@@ -91,3 +102,22 @@ The bot now accepts a local draft command:
 The four business fields are based on the observed browser form submission. The command validates identifiers, positive count, and safe sort-type syntax; a conservative local draft ceiling of 1,000 prevents accidental oversized drafts. This ceiling is an application safeguard, not an Augestel limit.
 
 A valid draft is recorded as `draft_prepared_not_sent`. **No network request is sent.** The helper does not accept `_token`, `request_token`, passwords, cookies, or session values. Those fields must never be copied from HAR or supplied by Telegram users. Actual submission remains disabled until provider-approved authentication and endpoint semantics are verified.
+
+
+## Bearer API client foundation (2026-10-14)
+
+The user-provided Authentication section documents Bearer token authentication: `Authorization: Bearer YOUR_API_KEY`. The application configuration and a read-only JSON GET helper have been added, but the API key itself must only be stored in the user's local `.env` or deployment secret store.
+
+Before enabling integration, set `AUGESTEL_API_BASE_URL` to the exact Base URL listed in Augestel API documentation and verify the specific endpoint paths. Do not use `/Switchfy/client/numbers/request`, `/Switchfy/client/numbers/export`, or `/Switchfy/client/numbers/bulk-return-all` in the API client merely because they were seen in browser HAR files.
+
+Example local configuration (do not commit `.env`):
+
+```dotenv
+AUGESTEL_API_BASE_URL=
+AUGESTEL_API_KEY=
+AUGESTEL_INTEGRATION_ENABLED=false
+```
+
+The blank API Base URL is intentional because its exact value has not yet been supplied. When a documented read-only endpoint is confirmed, it can be called via `AugestelClient.get_json()`. Add Number, export download, and Return All remain guarded placeholders until their API endpoints, payloads, scopes, and response formats are verified.
+
+**Key rotation:** the earlier screenshot showed an API key visibly. Treat that key as exposed and regenerate it in the Augestel dashboard before using any key locally.

@@ -12,10 +12,16 @@ from app.integrations.augestel import (
     AugestelIntegrationError,
 )
 from app.services.add_number_draft import AddNumberDraftError, parse_add_number_draft
+from app.services.accounts import load_api_key_for_user
 from app.services.operation_history import list_operations, record_operation
+from app.services.secret_store import SecretStorageError
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+class AugestelAccountNotConnected(RuntimeError):
+    pass
 
 
 async def _audit(telegram_id: int, operation: str, status: str, summary: str) -> None:
@@ -118,9 +124,9 @@ async def _show_numbers(message: Message, page: int = 1) -> None:
         await message.answer("Terjadi kesalahan saat mengambil daftar nomor. Coba lagi nanti.")
         return
 
-    if message.from_user is not None:
+    if requester_id is not None:
         await _audit(
-            message.from_user.id,
+            requester_id,
             "list_numbers",
             "success",
             f"Fetched My Numbers page {page}; number details are not stored in operation history.",
@@ -149,7 +155,7 @@ async def numbers_command(message: Message) -> None:
 async def numbers_menu(query: CallbackQuery) -> None:
     await query.answer()
     if isinstance(query.message, Message):
-        await _show_numbers(query.message, 1)
+        await _show_numbers(query.message, 1, telegram_id=query.from_user.id)
 
 
 @router.callback_query(lambda query: bool(query.data and query.data.startswith("numbers:page:")))
@@ -167,10 +173,21 @@ async def numbers_page_callback(query: CallbackQuery) -> None:
     if not isinstance(query.message, Message):
         return
     try:
-        text, keyboard = await _load_number_page(page)
+        text, keyboard = await _load_number_page(query.from_user.id, page)
+    except AugestelAccountNotConnected:
+        await query.message.answer(
+            "My Numbers belum terhubung. Gunakan /connect di chat pribadi untuk menyambungkan API Key."
+        )
+        return
+    except SecretStorageError:
+        logger.warning("Could not decrypt API key for Telegram user %s", query.from_user.id)
+        await query.message.answer(
+            "Key tersimpan tidak dapat dibuka. Periksa konfigurasi enkripsi, lalu hubungkan ulang dengan /connect."
+        )
+        return
     except AugestelIntegrationDisabled:
         await query.message.answer(
-            "Integrasi Augestel belum aktif. Konfigurasikan API key secara lokal di .env."
+            "Integrasi Augestel sedang dinonaktifkan oleh pengelola bot."
         )
         return
     except AugestelIntegrationError as exc:

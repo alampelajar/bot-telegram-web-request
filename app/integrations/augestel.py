@@ -164,10 +164,14 @@ class AugestelClient:
         range_name: str | None = None,
     ) -> dict[str, Any]:
         """Fetch the documented read-only GET /numbers resource."""
-        if isinstance(page, bool) or page < 1:
+        if isinstance(page, bool) or not isinstance(page, int) or page < 1:
             raise AugestelIntegrationError("page must be an integer greater than or equal to 1.")
-        if isinstance(per_page, bool) or not 1 <= per_page <= 100:
-            raise AugestelIntegrationError("per_page must be between 1 and 100.")
+        if (
+            isinstance(per_page, bool)
+            or not isinstance(per_page, int)
+            or not 1 <= per_page <= 100
+        ):
+            raise AugestelIntegrationError("per_page must be an integer between 1 and 100.")
 
         params: dict[str, str | int | bool] = {"page": page, "per_page": per_page}
         if range_name is not None and range_name.strip():
@@ -194,7 +198,12 @@ class AugestelClient:
 
         for key in ("current_page", "per_page", "total", "last_page"):
             value = pagination.get(key)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            minimum = 1 if key in ("current_page", "per_page") else 0
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < minimum
+            ):
                 raise AugestelIntegrationError("Augestel API returned invalid pagination metadata.")
 
         return {

@@ -10,6 +10,7 @@ from app.services.accounts import (
     register_or_touch_user,
     set_connection_pending,
 )
+from app.services.operation_history import record_operation
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -39,6 +40,12 @@ async def _connect_account(message: Message) -> None:
             first_name=user.first_name,
         )
         status = await set_connection_pending(user_id)
+        await record_operation(
+            user.id,
+            "connect_account",
+            status.connection_status,
+            result_summary="Connection request recorded; actual Augestel authentication has not run.",
+        )
     except Exception:
         logger.exception("Could not initialize account connection")
         await message.answer(
@@ -94,6 +101,15 @@ async def _disconnect_account(message: Message) -> None:
         await message.answer("Gagal memutuskan koneksi. Periksa koneksi database.")
         return
     if disconnected:
+        try:
+            await record_operation(
+                user.id,
+                "disconnect_account",
+                "disconnected",
+                result_summary="Connection state cleared for this Telegram user.",
+            )
+        except Exception:
+            logger.exception("Could not record account disconnect event")
         await message.answer("Status koneksi Augestel sudah diubah menjadi disconnected.")
     else:
         await message.answer("Belum ada koneksi Augestel yang perlu diputuskan.")

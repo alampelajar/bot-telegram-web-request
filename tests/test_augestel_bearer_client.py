@@ -40,12 +40,11 @@ async def test_get_json_sends_bearer_auth_and_parses_json(
     settings = Settings(
         augestel_integration_enabled=True,
         augestel_api_base_url="https://augestel.com/v1",
-        augestel_api_key=SecretStr("test-only-token"),
     )
     monkeypatch.setattr(augestel, "get_settings", lambda: settings)
     client = AugestelClient(
         base_url=settings.augestel_api_base_url,
-        api_key=settings.augestel_api_key,
+        api_key=SecretStr("test-only-token"),
         transport=httpx.MockTransport(handler),
     )
 
@@ -66,12 +65,11 @@ async def test_get_json_requires_enabled_integration_and_api_key(
     settings = Settings(
         augestel_integration_enabled=True,
         augestel_api_base_url="https://augestel.com/v1",
-        augestel_api_key=SecretStr(""),
     )
     monkeypatch.setattr(augestel, "get_settings", lambda: settings)
-    client = AugestelClient(base_url=settings.augestel_api_base_url, api_key=settings.augestel_api_key)
+    client = AugestelClient(base_url=settings.augestel_api_base_url, api_key=SecretStr(""))
 
-    with pytest.raises(AugestelIntegrationDisabled, match="AUGESTEL_API_KEY"):
+    with pytest.raises(AugestelIntegrationDisabled, match="No API key is connected"):
         await client.get_json("/numbers")
 
 
@@ -88,12 +86,11 @@ async def test_redirect_is_rejected_without_following(
     settings = Settings(
         augestel_integration_enabled=True,
         augestel_api_base_url="https://augestel.com/v1",
-        augestel_api_key=SecretStr("test-only-token"),
     )
     monkeypatch.setattr(augestel, "get_settings", lambda: settings)
     client = AugestelClient(
         base_url=settings.augestel_api_base_url,
-        api_key=settings.augestel_api_key,
+        api_key=SecretStr("test-only-token"),
         transport=httpx.MockTransport(handler),
     )
 
@@ -120,12 +117,11 @@ async def test_untrusted_base_url_is_rejected(
     settings = Settings(
         augestel_integration_enabled=True,
         augestel_api_base_url=base_url,
-        augestel_api_key=SecretStr("test-only-token"),
     )
     monkeypatch.setattr(augestel, "get_settings", lambda: settings)
     client = AugestelClient(
         base_url=base_url,
-        api_key=settings.augestel_api_key,
+        api_key=SecretStr("test-only-token"),
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})),
     )
 
@@ -141,12 +137,11 @@ async def test_unsafe_api_path_is_rejected(
     settings = Settings(
         augestel_integration_enabled=True,
         augestel_api_base_url="https://augestel.com/v1",
-        augestel_api_key=SecretStr("test-only-token"),
     )
     monkeypatch.setattr(augestel, "get_settings", lambda: settings)
     client = AugestelClient(
         base_url=settings.augestel_api_base_url,
-        api_key=settings.augestel_api_key,
+        api_key=SecretStr("test-only-token"),
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})),
     )
 
@@ -159,12 +154,11 @@ async def test_non_json_response_is_rejected(monkeypatch: pytest.MonkeyPatch) ->
     settings = Settings(
         augestel_integration_enabled=True,
         augestel_api_base_url="https://augestel.com/v1",
-        augestel_api_key=SecretStr("test-only-token"),
     )
     monkeypatch.setattr(augestel, "get_settings", lambda: settings)
     client = AugestelClient(
         base_url=settings.augestel_api_base_url,
-        api_key=settings.augestel_api_key,
+        api_key=SecretStr("test-only-token"),
         transport=httpx.MockTransport(
             lambda request: httpx.Response(200, text="<html>login</html>")
         ),
@@ -212,12 +206,11 @@ async def test_list_numbers_uses_documented_endpoint_and_pagination(
         _env_file=None,
         augestel_integration_enabled=True,
         augestel_api_base_url="https://augestel.com/api/v1/iprn",
-        augestel_api_key=SecretStr("test-only-token"),
     )
     monkeypatch.setattr(augestel, "get_settings", lambda: settings)
     client = AugestelClient(
         base_url=settings.augestel_api_base_url,
-        api_key=settings.augestel_api_key,
+        api_key=SecretStr("test-only-token"),
         transport=httpx.MockTransport(handler),
     )
 
@@ -247,12 +240,11 @@ async def test_list_numbers_rejects_invalid_pagination(
         _env_file=None,
         augestel_integration_enabled=True,
         augestel_api_base_url="https://augestel.com/api/v1/iprn",
-        augestel_api_key=SecretStr("test-only-token"),
     )
     monkeypatch.setattr(augestel, "get_settings", lambda: settings)
     client = AugestelClient(
         base_url=settings.augestel_api_base_url,
-        api_key=settings.augestel_api_key,
+        api_key=SecretStr("test-only-token"),
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})),
     )
 
@@ -268,12 +260,11 @@ async def test_list_numbers_rejects_unexpected_response_schema(
         _env_file=None,
         augestel_integration_enabled=True,
         augestel_api_base_url="https://augestel.com/api/v1/iprn",
-        augestel_api_key=SecretStr("test-only-token"),
     )
     monkeypatch.setattr(augestel, "get_settings", lambda: settings)
     client = AugestelClient(
         base_url=settings.augestel_api_base_url,
-        api_key=settings.augestel_api_key,
+        api_key=SecretStr("test-only-token"),
         transport=httpx.MockTransport(
             lambda request: httpx.Response(
                 200,

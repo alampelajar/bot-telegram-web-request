@@ -23,17 +23,18 @@ Telegram bot for managing an authorized Augestel account.
 
 ## Status
 
-Augestel's API documentation states that requests use `Authorization: Bearer YOUR_API_KEY`. The application now supports a secret API-key setting and a guarded, read-only JSON GET client. Set `AUGESTEL_API_BASE_URL` to the exact Base URL shown in Augestel API documentation; it is deliberately blank by default rather than guessed.
+Augestel documents Bearer authentication using `Authorization: Bearer YOUR_API_KEY`, with API v1 Base URL `https://augestel.com/api/v1/iprn`. Both the API Base URL and API-key configuration are now present in the application and `.env.example`.
 
-The integration remains disabled by default. No actual API endpoint has yet been called because the documented Base URL and endpoint paths have not been confirmed. The `/addnumber` command validates a local draft only. Add Number submission, export download, and Return All are still unimplemented and do not send requests.
+The integration remains disabled by default. The read-only client foundation is tested with mocked HTTP responses, but it has not yet called Augestel's live API because the exact documented resource endpoints and response schemas have not been provided. The `/addnumber` command validates a local draft only. Add Number submission, export download, and Return All are still unimplemented and do not send requests.
 
 ## Local quick start
 
 1. Copy `.env.example` to `.env`.
-2. Set `BOT_TOKEN` in `.env`.
-3. Install with `python -m pip install -e .`.
-4. Run `python -m app.main`.
-5. Send `/start` to the bot.
+2. Set `BOT_TOKEN` and your **regenerated** `AUGESTEL_API_KEY` in `.env`.
+3. Keep `AUGESTEL_INTEGRATION_ENABLED=false` until endpoint docs are verified.
+4. Install with `python -m pip install -e .`.
+5. Run `python -m app.main`.
+6. Send `/start` to the bot.
 
 To validate an Add Number draft, use:
 
@@ -43,4 +44,4 @@ To validate an Add Number draft, use:
 
 This validates the syntax and saves an operation-history record. It does **not** send a request.
 
-For API access, store the regenerated Augestel API key only in local `.env` or a deployment secret manager. Never commit `.env`, API keys, session cookies, credentials, HAR files, or exported account data. The API key visible in the earlier screenshot should be regenerated before use.
+Never commit `.env`, API keys, session cookies, credentials, HAR files, or exported account data. The API key visible in the earlier screenshot should be regenerated before use.

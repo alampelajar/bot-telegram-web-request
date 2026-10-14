@@ -588,8 +588,3 @@ class AugestelClient:
             )
         finally:
             await client.aclose()
-
-
-class AugestelOperationOutcomeUnknown(AugestelIntegrationError):
-    """A write request may have been processed but has no trustworthy success response."""
-

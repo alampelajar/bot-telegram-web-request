@@ -89,7 +89,7 @@ The redirects and subsequent successful page/API loads are consistent with a suc
 
 **Security note:** this HAR includes the login request body with an email/password form. Do not commit or forward the raw HAR, and never copy its credential, CSRF, or session values into source code, bot messages, logs, or documentation. If the HAR was shared or stored somewhere not trusted, change the account password and revoke active sessions where Augestel provides that option.
 
-This capture does not show Add Number, Export, or Return All being triggered. The website form route is not needed when using the documented API-key authentication scheme. Use the API's documented Bearer header rather than scraping website sessions. The exact API Base URL and endpoint contracts still need to be taken from the API documentation; do not guess them. Do not bypass challenge/anti-abuse controls or replay sensitive values from HAR.
+This capture does not show Add Number, Export, or Return All being triggered. The documented Bearer API-key scheme is confirmed only for the `/api/v1/iprn` API endpoints, not for these website routes. The custom write adapter uses the user's Bearer key only as an opt-in attempt on the same Augestel host, and stops if the fresh page/metadata requests are redirected or rejected. It does not replay tokens from HAR or bypass challenge/anti-abuse controls.
 
 
 ## Add Number draft validation (2026-10-14)

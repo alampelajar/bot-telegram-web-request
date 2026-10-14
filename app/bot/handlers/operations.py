@@ -5,7 +5,12 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards import confirm_return_all
+from app.bot.keyboards import confirm_return_all, numbers_pagination
+from app.integrations.augestel import (
+    AugestelClient,
+    AugestelIntegrationDisabled,
+    AugestelIntegrationError,
+)
 from app.services.add_number_draft import AddNumberDraftError, parse_add_number_draft
 from app.services.operation_history import list_operations, record_operation
 
@@ -36,9 +41,155 @@ async def _not_enabled(message: Message, feature: str, operation: str | None = N
         )
     await message.answer(
         f"<b>{escape(feature)}</b> belum dieksekusi.\n"
-        "Integrasi Augestel masih dalam mode aman karena metode autentikasi dan izin "
-        "endpoint perlu divalidasi terlebih dahulu. Tidak ada request ke Augestel yang dikirim."
+        "Integrasi Augestel masih dalam mode aman karena endpoint/fitur ini belum diverifikasi. "
+        "Tidak ada request ke Augestel yang dikirim."
     )
+
+
+def _format_number_page(payload: dict) -> tuple[str, object | None]:
+    records = payload["data"]
+    pagination = payload["pagination"]
+    page = pagination["current_page"]
+    last_page = pagination["last_page"]
+    per_page = pagination["per_page"]
+    total = pagination["total"]
+
+    lines = [
+        "<b>📱 My Numbers</b>",
+        f"Total nomor: <b>{total}</b>",
+        f"Halaman <b>{page}</b> dari <b>{max(1, last_page)}</b> · {per_page} per halaman",
+        "",
+    ]
+    if not records:
+        lines.append("Tidak ada nomor pada halaman ini.")
+    else:
+        for index, record in enumerate(records, start=1):
+            number = escape(record["number"])
+            range_name = escape(record["range_name"])
+            rate_value = record.get("a2p_rate")
+            if isinstance(rate_value, (int, float)) and not isinstance(rate_value, bool):
+                rate = f"{rate_value:.4f}"
+            else:
+                rate = "—"
+            limit_value = record.get("portal_limit_a2p")
+            limit = str(limit_value) if isinstance(limit_value, int) and not isinstance(limit_value, bool) else "—"
+            last_message = record.get("last_message_at")
+            if not isinstance(last_message, str) or not last_message:
+                last_message = "Belum ada data"
+            else:
+                last_message = escape(last_message)
+            lines.extend(
+                [
+                    f"<b>{index}. {number}</b> · {range_name}",
+                    f"Tarif A2P: <code>{rate}</code> · Portal limit: <code>{limit}</code>",
+                    f"Pesan terakhir: <code>{last_message}</code>",
+                    "",
+                ]
+            )
+    return "\n".join(lines).strip(), numbers_pagination(page, last_page)
+
+
+async def _load_number_page(page: int) -> tuple[str, object | None]:
+    client = AugestelClient.from_settings()
+    payload = await client.list_numbers(page=page, per_page=20)
+    return _format_number_page(payload)
+
+
+async def _show_numbers(message: Message, page: int = 1) -> None:
+    if page < 1:
+        await message.answer("Nomor halaman harus minimal 1.")
+        return
+    try:
+        text, keyboard = await _load_number_page(page)
+    except AugestelIntegrationDisabled:
+        await message.answer(
+            "<b>My Numbers belum terhubung.</b>\n"
+            "Isi <code>AUGESTEL_API_KEY</code> pada file <code>.env</code>, pastikan Base URL "
+            "API benar, lalu aktifkan integrasi setelah konfigurasi siap. "
+            "Jangan kirim API key melalui Telegram."
+        )
+        return
+    except AugestelIntegrationError as exc:
+        logger.warning("Augestel My Numbers request failed: %s", str(exc))
+        await message.answer(f"Gagal mengambil daftar nomor: {escape(str(exc))}")
+        return
+    except Exception:
+        logger.exception("Unexpected error loading Augestel My Numbers")
+        await message.answer("Terjadi kesalahan saat mengambil daftar nomor. Coba lagi nanti.")
+        return
+
+    if message.from_user is not None:
+        await _audit(
+            message.from_user.id,
+            "list_numbers",
+            "success",
+            f"Fetched My Numbers page {page}; number details are not stored in operation history.",
+        )
+    await message.answer(text, reply_markup=keyboard)
+
+
+@router.message(Command("numbers"))
+async def numbers_command(message: Message) -> None:
+    text = message.text or ""
+    parts = text.split()
+    page = 1
+    if len(parts) > 2:
+        await message.answer("Format: <code>/numbers</code> atau <code>/numbers 2</code>")
+        return
+    if len(parts) == 2:
+        try:
+            page = int(parts[1])
+        except ValueError:
+            await message.answer("Nomor halaman harus berupa bilangan bulat. Contoh: <code>/numbers 2</code>")
+            return
+    await _show_numbers(message, page)
+
+
+@router.callback_query(lambda query: query.data == "menu:numbers")
+async def numbers_menu(query: CallbackQuery) -> None:
+    await query.answer()
+    if isinstance(query.message, Message):
+        await _show_numbers(query.message, 1)
+
+
+@router.callback_query(lambda query: bool(query.data and query.data.startswith("numbers:page:")))
+async def numbers_page_callback(query: CallbackQuery) -> None:
+    data = query.data or ""
+    try:
+        page = int(data.rsplit(":", 1)[1])
+    except (ValueError, IndexError):
+        await query.answer("Halaman tidak valid.", show_alert=True)
+        return
+    if page < 1:
+        await query.answer("Halaman tidak valid.", show_alert=True)
+        return
+    await query.answer()
+    if not isinstance(query.message, Message):
+        return
+    try:
+        text, keyboard = await _load_number_page(page)
+    except AugestelIntegrationDisabled:
+        await query.message.answer(
+            "Integrasi Augestel belum aktif. Konfigurasikan API key secara lokal di .env."
+        )
+        return
+    except AugestelIntegrationError as exc:
+        logger.warning("Augestel My Numbers pagination failed: %s", str(exc))
+        await query.message.answer(f"Gagal membuka halaman: {escape(str(exc))}")
+        return
+    except Exception:
+        logger.exception("Unexpected error loading Augestel My Numbers page")
+        await query.message.answer("Terjadi kesalahan saat mengambil halaman nomor.")
+        return
+
+    if query.from_user is not None:
+        await _audit(
+            query.from_user.id,
+            "list_numbers",
+            "success",
+            f"Fetched My Numbers page {page}; number details are not stored in operation history.",
+        )
+    await query.message.edit_text(text, reply_markup=keyboard)
 
 
 @router.message(Command("addnumber"))

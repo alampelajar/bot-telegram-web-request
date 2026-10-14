@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import re
 
 
-_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+_IDENTIFIER_RE = re.compile(r"^[0-9]{1,20}$")
 _SORT_TYPE_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 MAX_DRAFT_COUNT = 1000
 
@@ -45,10 +45,10 @@ def parse_add_number_draft(arguments: str) -> AddNumberDraft:
 
     termination_id, termination_term_id, count_text, sort_type = parts
     if not _IDENTIFIER_RE.fullmatch(termination_id):
-        raise AddNumberDraftError("termination_id hanya boleh berisi huruf, angka, '_' atau '-'.")
+        raise AddNumberDraftError("termination_id harus berupa ID numerik Augestel.")
     if not _IDENTIFIER_RE.fullmatch(termination_term_id):
         raise AddNumberDraftError(
-            "termination_term_id hanya boleh berisi huruf, angka, '_' atau '-'."
+            "termination_term_id harus berupa ID numerik Augestel."
         )
     if not _SORT_TYPE_RE.fullmatch(sort_type):
         raise AddNumberDraftError("sort_type hanya boleh berisi huruf, angka, '_' atau '-'.")

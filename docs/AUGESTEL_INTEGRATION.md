@@ -23,17 +23,17 @@ Configuration added to the application:
 - `AUGESTEL_API_BASE_URL`: defaults to the Base URL documented by the user, `https://augestel.com/api/v1/iprn`.
 - `AUGESTEL_INTEGRATION_ENABLED`: remains `false` by default.
 
-The integration client now has a read-only `get_json(path)` foundation that uses the Bearer header, validates HTTPS and the Augestel host, rejects redirects, and avoids printing response bodies or credentials in errors. The documented Base URL is configured, but no live endpoint has been called because resource endpoint paths and schemas have not yet been supplied.
+The integration client now has a read-only `get_json(path)` foundation that uses the Bearer header, validates HTTPS and the Augestel host, rejects redirects, and avoids printing response bodies or credentials in errors. The Base URL and the documented My Numbers endpoint are configured; the endpoint is exercised using mocked tests, not a live call from this development process.
 
-Before implementing feature operations:
-1. The API Base URL supplied from the documentation is `https://augestel.com/api/v1/iprn`; copy the endpoint paths and schemas from the official docs.
+Before implementing remaining feature operations:
+1. The API Base URL supplied from the documentation is `https://augestel.com/api/v1/iprn`; continue using endpoint paths and schemas from the official docs.
 2. Verify documented request parameters and response schemas with read-only calls first.
 3. Keep the API key in local `.env` or a secret manager; never in chat, source code, logs, or the repository.
 4. Require explicit confirmation for write actions such as Add Number and Return All.
 5. Never blindly retry a timed-out Return All; first determine whether the provider completed it.
 6. Do not use browser cookies, CSRF tokens, or challenge payloads for the API client.
 
-Actual Add Number submission, export download, and Return All remain unimplemented and blocked.
+Actual Add Number submission, export download, and Return All remain unimplemented and blocked. The read-only My Numbers endpoint is implemented as described below.
 
 
 ## Findings from `augestel.com.login.har` (2026-10-14)
@@ -108,7 +108,7 @@ A valid draft is recorded as `draft_prepared_not_sent`. **No network request is 
 
 The user-provided Authentication section documents Bearer token authentication: `Authorization: Bearer YOUR_API_KEY`. The application configuration and a read-only JSON GET helper have been added, but the API key itself must only be stored in the user's local `.env` or deployment secret store.
 
-The documented Base URL is now configured as `https://augestel.com/api/v1/iprn`. Before enabling integration, verify the specific resource endpoint paths and request/response schemas. Do not use `/Switchfy/client/numbers/request`, `/Switchfy/client/numbers/export`, or `/Switchfy/client/numbers/bulk-return-all` in the API client merely because they were seen in browser HAR files.
+The documented Base URL is now configured as `https://augestel.com/api/v1/iprn`. The My Numbers resource endpoint is now documented and implemented. Verify endpoint paths and request/response schemas for any additional operation before enabling those features. Do not use `/Switchfy/client/numbers/request`, `/Switchfy/client/numbers/export`, or `/Switchfy/client/numbers/bulk-return-all` in the API client merely because they were seen in browser HAR files.
 
 Example local configuration (do not commit `.env`):
 
@@ -118,6 +118,29 @@ AUGESTEL_API_KEY=put_regenerated_key_here_locally
 AUGESTEL_INTEGRATION_ENABLED=false
 ```
 
-The API Base URL is taken directly from the documentation supplied by the user. When a documented read-only endpoint is confirmed, it can be called via `AugestelClient.get_json()`. Add Number, export download, and Return All remain guarded placeholders until their API endpoints, payloads, scopes, and response formats are verified.
+The API Base URL is taken directly from the documentation supplied by the user. `GET /numbers` is implemented via `AugestelClient.list_numbers()` and exposed in the Telegram menu as **My Numbers** and the `/numbers` command. Add Number, export download, and Return All remain guarded placeholders until their API endpoints, payloads, scopes, and response formats are verified.
 
 **Key rotation:** the earlier screenshot showed an API key visibly. Treat that key as exposed and regenerate it in the Augestel dashboard before using any key locally.
+
+
+## My Numbers endpoint (2026-10-14)
+
+The user-provided official endpoint page documents:
+
+- Method: `GET`
+- Relative endpoint: `/numbers`
+- Full URL: `https://augestel.com/api/v1/iprn/numbers`
+- Authentication: `Authorization: Bearer YOUR_API_KEY`
+- Accept header: `application/json`
+- Query parameters:
+  - `page` (integer, optional, default 1)
+  - `per_page` (integer, optional, default 20, maximum 100)
+  - `range_name` (string, optional filter)
+
+The documented response object has `success`, `data` (array), and `pagination` keys. Number records contain `number`, `range_name`, `a2p_rate`, `portal_limit_a2p`, `last_message_at`, and `assigned_at`. Pagination contains `current_page`, `per_page`, `total`, and `last_page`.
+
+The application now uses `AugestelClient.list_numbers()` and surfaces this read-only data through **📱 My Numbers** and `/numbers`, with next/previous page buttons. Command `/numbers 2` can open page 2. The client checks basic response structure before the bot formats any values for Telegram; displayed provider text is HTML-escaped. The API key is not stored in operation history.
+
+The feature is opt-in. Set `AUGESTEL_API_KEY` in local `.env` using a key regenerated after the earlier screenshot exposure, and set `AUGESTEL_INTEGRATION_ENABLED=true` only when intentionally testing the documented read-only API. The CI tests use mocked HTTP responses; no live request was sent from the development process.
+
+Add Number, export, and Return All remain disabled until their documented API endpoints and payloads are supplied.

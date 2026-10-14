@@ -4,13 +4,16 @@ from html import escape
 from aiogram import Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards import confirm_return_all, numbers_pagination
+from app.bot.keyboards import confirm_add_number, confirm_return_all, numbers_pagination
 from app.integrations.augestel import (
     AugestelClient,
     AugestelIntegrationDisabled,
     AugestelIntegrationError,
+    AugestelOperationOutcomeUnknown,
 )
 from app.services.accounts import load_api_key_for_user
 from app.services.add_number_draft import AddNumberDraftError, parse_add_number_draft
@@ -23,6 +26,21 @@ logger = logging.getLogger(__name__)
 
 class AugestelAccountNotConnected(RuntimeError):
     """The Telegram user has not securely connected their own Augestel API key."""
+
+
+class AddNumberFlow(StatesGroup):
+    waiting_confirmation = State()
+
+
+class ReturnAllFlow(StatesGroup):
+    waiting_confirmation = State()
+
+
+async def _connected_client(telegram_id: int) -> AugestelClient:
+    api_key = await load_api_key_for_user(telegram_id)
+    if api_key is None:
+        raise AugestelAccountNotConnected
+    return AugestelClient.from_settings(api_key=api_key)
 
 
 async def _audit(telegram_id: int, operation: str, status: str, summary: str) -> None:
@@ -236,19 +254,37 @@ async def numbers_page_callback(query: CallbackQuery) -> None:
 
 
 @router.message(Command("addnumber"))
-async def add_number_command(message: Message) -> None:
-    text = message.text or ""
-    _, _, arguments = text.partition(" ")
+async def add_number_command(message: Message, state: FSMContext) -> None:
+    if message.chat.type != ChatType.PRIVATE:
+        await message.answer("Demi keamanan, Add Number hanya tersedia di chat pribadi bot.")
+        return
+
+    raw = message.text or ""
+    _, _, arguments = raw.partition(" ")
     if not arguments.strip():
         await message.answer(
-            "<b>Draft Add Number</b>\n\n"
+            "<b>➕ Add Number</b>\\n\\n"
             "Format: <code>/addnumber &lt;termination_id&gt; "
-            "&lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\n"
-            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\n\n"
-            "Ini hanya memvalidasi draft lokal. Nilai ID harus diperoleh dari akun Anda. "
-            "API Key tidak boleh dimasukkan ke perintah ini. Draft yang valid tetap belum dikirim "
-            "ke Augestel karena endpoint Add Number API belum tersedia pada dokumentasi."
+            "&lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\\n"
+            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\\n\\n"
+            "ID harus berasal dari informasi akun/terminasi Augestel kamu. Nilai contoh di atas "
+            "hanya ilustrasi. Setelah validasi, bot akan menampilkan ringkasan dan meminta konfirmasi. "
+            "Endpoint website yang teramati belum menjadi API publik terdokumentasi, sehingga eksekusi "
+            "tetap membutuhkan <code>AUGESTEL_CUSTOM_WRITE_ENABLED=true</code> di konfigurasi operator."
         )
+        return
+
+    if message.from_user is None:
+        await message.answer("Identitas Telegram tidak tersedia.")
+        return
+
+    try:
+        await _connected_client(message.from_user.id)
+    except AugestelAccountNotConnected:
+        await message.answer("Hubungkan akun terlebih dahulu dengan <code>/connect</code> di chat pribadi.")
+        return
+    except SecretStorageError:
+        await message.answer("API Key tersimpan tidak bisa dibuka. Hubungi pengelola bot.")
         return
 
     try:
@@ -257,20 +293,124 @@ async def add_number_command(message: Message) -> None:
         await message.answer(f"Parameter tidak valid: {escape(str(exc))}")
         return
 
-    if message.from_user is not None:
-        await _audit(
-            message.from_user.id,
-            "add_number",
-            "draft_prepared_not_sent",
-            "Local draft validated; no request sent because no documented write endpoint is available.",
+    await state.set_state(AddNumberFlow.waiting_confirmation)
+    await state.set_data(
+        {
+            "termination_id": draft.termination_id,
+            "termination_term_id": draft.termination_term_id,
+            "count": draft.count,
+            "sort_type": draft.sort_type,
+        }
+    )
+    await _audit(
+        message.from_user.id,
+        "add_number",
+        "confirmation_requested",
+        "Validated Add Number draft; no request has been sent.",
         )
     await message.answer(
-        "<b>Draft Add Number tervalidasi</b>\n"
-        f"Termination ID: <code>{escape(draft.termination_id)}</code>\n"
-        f"Billing term ID: <code>{escape(draft.termination_term_id)}</code>\n"
-        f"Jumlah: <code>{draft.count}</code>\n"
-        f"Sort type: <code>{escape(draft.sort_type)}</code>\n\n"
-        "<b>Belum dieksekusi.</b> Tidak ada request dikirim ke Augestel karena endpoint tulis resmi belum tersedia."
+        "<b>Konfirmasi Add Number</b>\\n\\n"
+        f"Termination ID: <code>{escape(draft.termination_id)}</code>\\n"
+        f"Term ID: <code>{escape(draft.termination_term_id)}</code>\\n"
+        f"Jumlah: <b>{draft.count}</b>\\n"
+        f"Sort type: <code>{escape(draft.sort_type)}</code>\\n\\n"
+        "Pastikan data benar sebelum melanjutkan. Jika rute website membutuhkan CSRF/browser session, "
+        "bot akan berhenti tanpa melewati perlindungan tersebut.",
+        reply_markup=confirm_add_number(),
+    )
+
+
+@router.callback_query(lambda query: query.data == "add_number:cancel")
+async def cancel_add_number_callback(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await query.answer("Add Number dibatalkan.")
+    if isinstance(query.message, Message):
+        if query.from_user:
+            await _audit(
+                query.from_user.id,
+                "add_number",
+                "cancelled",
+                "User cancelled before any write request was sent.",
+            )
+        await query.message.answer("Add Number dibatalkan. Tidak ada request yang dikirim.")
+
+
+@router.callback_query(lambda query: query.data == "add_number:confirm")
+async def confirm_add_number_callback(query: CallbackQuery, state: FSMContext) -> None:
+    if not isinstance(query.message, Message) or query.message.chat.type != ChatType.PRIVATE:
+        await query.answer("Konfirmasi hanya tersedia di chat pribadi.", show_alert=True)
+        await state.clear()
+        return
+    data = await state.get_data()
+    required = ("termination_id", "termination_term_id", "count", "sort_type")
+    if await state.get_state() != AddNumberFlow.waiting_confirmation.state or not all(
+        key in data for key in required
+    ):
+        await query.answer("Draft tidak tersedia atau sudah kedaluwarsa. Mulai lagi dengan /addnumber.", show_alert=True)
+        await state.clear()
+        return
+
+    # Clear confirmation state before I/O so a double-click cannot repeat this POST.
+    await state.clear()
+    await query.answer("Memproses Add Number…")
+    user = query.from_user
+    try:
+        client = await _connected_client(user.id)
+        payload = {
+            "termination_id": data["termination_id"],
+            "termination_term_id": data["termination_term_id"],
+            "count": data["count"],
+            "sort_type": data["sort_type"],
+        }
+        result = await client.add_numbers(payload)
+    except AugestelAccountNotConnected:
+        await query.message.answer("Akun belum terhubung. Gunakan /connect lalu ulangi Add Number.")
+        return
+    except SecretStorageError:
+        await query.message.answer("API Key tersimpan tidak bisa dibuka. Hubungi pengelola bot.")
+        return
+    except AugestelIntegrationDisabled as exc:
+        await _audit(user.id, "add_number", "blocked_write_disabled", "No request was sent.")
+        await query.message.answer(escape(str(exc)))
+        return
+    except AugestelOperationOutcomeUnknown:
+        await _audit(
+            user.id,
+            "add_number",
+            "outcome_unknown",
+            "Write request outcome was uncertain; do not retry until My Numbers is checked.",
+            )
+        await query.message.answer(
+            "⚠️ Hasil Add Number belum bisa dipastikan. Jangan tekan ulang dulu. "
+            "Periksa <code>/numbers</code> dan portal Augestel untuk memastikan apakah nomor sudah ditambahkan."
+        )
+        return
+    except AugestelIntegrationError as exc:
+        await _audit(
+            user.id,
+            "add_number",
+            "failed",
+            "Augestel did not provide a confirmed success response; no automatic retry was made.",
+        )
+        await query.message.answer(f"Add Number gagal: {escape(str(exc))}")
+        return
+    except Exception as exc:
+        logger.error("Unexpected Add Number error for Telegram user %s (%s)", user.id, type(exc).__name__)
+        await _audit(user.id, "add_number", "outcome_unknown", "Unexpected write error; check account before retry.")
+        await query.message.answer(
+            "Respons Add Number tidak dapat dipastikan. Periksa <code>/numbers</code> sebelum mencoba lagi."
+        )
+        return
+
+    await _audit(
+        user.id,
+        "add_number",
+        "success",
+        f"Augestel returned success for requested count {data['count']}; verify assigned numbers with /numbers.",
+        )
+    await query.message.answer(
+        f"✅ Augestel mengembalikan status sukses untuk permintaan {data['count']} nomor. "
+        "Gunakan <code>/numbers</code> untuk memverifikasi hasil sebenarnya."
     )
 
 
@@ -279,21 +419,68 @@ async def download_command(message: Message) -> None:
     await _not_enabled(message, "Download Numbers", "download_numbers")
 
 
-@router.message(Command("returnall"))
-async def return_all_command(message: Message) -> None:
-    if message.from_user is not None:
-        await _audit(
-            message.from_user.id,
-            "return_all",
-            "confirmation_requested",
-            "Confirmation requested; no request has been sent.",
-        )
+async def _show_return_all_preview(
+    message: Message,
+    state: FSMContext,
+    *,
+    telegram_id: int | None = None,
+) -> None:
+    if message.chat.type != ChatType.PRIVATE:
+        await message.answer("Demi keamanan, Return All hanya tersedia di chat pribadi bot.")
+        return
+    user_id = telegram_id or (message.from_user.id if message.from_user else None)
+    if user_id is None:
+        await message.answer("Identitas Telegram tidak tersedia.")
+        return
+    try:
+        client = await _connected_client(user_id)
+        numbers = await client.list_numbers(page=1, per_page=1)
+    except AugestelAccountNotConnected:
+        await message.answer("Hubungkan akun terlebih dahulu dengan <code>/connect</code> di chat pribadi.")
+        return
+    except SecretStorageError:
+        await message.answer("API Key tersimpan tidak bisa dibuka. Hubungi pengelola bot.")
+        return
+    except AugestelIntegrationDisabled:
+        await message.answer("Integrasi Augestel sedang dinonaktifkan oleh pengelola bot.")
+        return
+    except AugestelIntegrationError as exc:
+        await message.answer(f"Tidak dapat memeriksa jumlah nomor saat ini: {escape(str(exc))}")
+        return
+    except Exception as exc:
+        logger.error("Could not preview Return All for Telegram user %s (%s)", user_id, type(exc).__name__)
+        await message.answer("Gagal memeriksa jumlah nomor. Tidak ada perubahan yang dilakukan.")
+        return
+
+    total = numbers["pagination"]["total"]
+    if total == 0:
+        await state.clear()
+        await message.answer("Akun ini saat ini memiliki 0 nomor. Return All tidak diperlukan.")
+        return
+
+    await state.set_state(ReturnAllFlow.waiting_confirmation)
+    await state.set_data({"expected_total": total})
+    await _audit(
+        user_id,
+        "return_all",
+        "confirmation_requested",
+        f"Preview showed {total} assigned numbers; no request has been sent.",
+    )
     await message.answer(
-        "<b>⚠️ Return All</b>\n\n"
-        "Tindakan ini dapat mengembalikan seluruh nomor pada akun Augestel yang terhubung.\n"
-        "Endpoint Return All tidak tersedia di API yang didokumentasikan; tidak ada request yang dikirim.",
+        "<b>⚠️ Konfirmasi Return All</b>\\n\\n"
+        f"API saat ini melaporkan <b>{total}</b> nomor pada akun yang terhubung.\\n"
+        "Jika diteruskan, tindakan ini akan mencoba mengembalikan semua nomor pada akun tersebut. "
+        "Tindakan tidak dapat dibatalkan melalui bot.\\n\\n"
+        "Rute Return All berasal dari pengamatan alur website, bukan dokumentasi API publik. "
+        "Jika server memerlukan sesi browser/CSRF, bot tidak akan melewatinya. Jika hasil request tidak pasti, "
+        "bot tidak akan mengulang otomatis.",
         reply_markup=confirm_return_all(),
     )
+
+
+@router.message(Command("returnall"))
+async def return_all_command(message: Message, state: FSMContext) -> None:
+    await _show_return_all_preview(message, state)
 
 
 @router.message(Command("history"))
@@ -355,39 +542,117 @@ async def download_menu(query: CallbackQuery) -> None:
 
 
 @router.callback_query(lambda query: query.data == "menu:return_all")
-async def return_all_menu(query: CallbackQuery) -> None:
+async def return_all_menu(query: CallbackQuery, state: FSMContext) -> None:
     await query.answer()
     if isinstance(query.message, Message):
-        await _audit(
-            query.from_user.id,
-            "return_all",
-            "confirmation_requested",
-            "Confirmation requested; no request has been sent.",
-        )
-        await query.message.answer(
-            "<b>⚠️ Return All</b>\n\n"
-            "Tindakan ini dapat mengembalikan seluruh nomor. Endpoint Return All belum terdokumentasi; "
-            "konfirmasi tidak akan menjalankan request.",
-            reply_markup=confirm_return_all(),
-        )
+        await _show_return_all_preview(query.message, state, telegram_id=query.from_user.id)
 
 
 @router.callback_query(lambda query: query.data == "return_all:confirm")
-async def confirm_return_all_callback(query: CallbackQuery) -> None:
-    await query.answer("Endpoint Return All belum diimplementasikan.", show_alert=True)
-    if query.from_user:
-        await _audit(
-            query.from_user.id,
-            "return_all",
-            "blocked_endpoint_unavailable",
-            "User confirmed, but no request was sent because no documented write endpoint is available.",
+async def confirm_return_all_callback(query: CallbackQuery, state: FSMContext) -> None:
+    if not isinstance(query.message, Message) or query.message.chat.type != ChatType.PRIVATE:
+        await query.answer("Konfirmasi hanya tersedia di chat pribadi.", show_alert=True)
+        await state.clear()
+        return
+    data = await state.get_data()
+    if (
+        await state.get_state() != ReturnAllFlow.waiting_confirmation.state
+        or not isinstance(data.get("expected_total"), int)
+    ):
+        await query.answer("Konfirmasi tidak tersedia atau sudah kedaluwarsa. Gunakan /returnall lagi.", show_alert=True)
+        await state.clear()
+        return
+
+    user = query.from_user
+    try:
+        client = await _connected_client(user.id)
+        current = await client.list_numbers(page=1, per_page=1)
+    except AugestelAccountNotConnected:
+        await state.clear()
+        await query.answer("Akun belum terhubung.", show_alert=True)
+        await query.message.answer("Hubungkan ulang dengan /connect.")
+        return
+    except (SecretStorageError, AugestelIntegrationDisabled, AugestelIntegrationError) as exc:
+        await state.clear()
+        await query.answer("Tidak dapat memeriksa akun.", show_alert=True)
+        await query.message.answer(f"Return All dihentikan: {escape(str(exc))}")
+        return
+    except Exception as exc:
+        await state.clear()
+        logger.error("Could not recheck Return All for Telegram user %s (%s)", user.id, type(exc).__name__)
+        await query.answer("Tidak dapat memeriksa akun.", show_alert=True)
+        await query.message.answer("Tidak ada request pengembalian yang dikirim.")
+        return
+
+    current_total = current["pagination"]["total"]
+    if current_total == 0:
+        await state.clear()
+        await query.answer("Tidak ada nomor untuk dikembalikan.")
+        await query.message.answer("Jumlah nomor sekarang 0. Return All tidak dijalankan.")
+        return
+    if current_total != data["expected_total"]:
+        await state.set_data({"expected_total": current_total})
+        await query.answer("Jumlah nomor berubah; periksa konfirmasi baru.", show_alert=True)
+        await query.message.answer(
+            f"Jumlah nomor berubah dari {data['expected_total']} menjadi {current_total}. "
+            "Periksa kembali sebelum mengonfirmasi.",
+            reply_markup=confirm_return_all(),
         )
-    if query.message:
-        await query.message.answer("Operasi tidak dijalankan. Endpoint Return All belum tersedia.")
+        return
+
+    # Clear FSM state before sending POST so repeated clicks cannot initiate a second request.
+    await state.clear()
+    await query.answer("Memproses Return All…")
+    try:
+        result = await client.return_all()
+    except AugestelIntegrationDisabled as exc:
+        await _audit(user.id, "return_all", "blocked_write_disabled", "No request was sent.")
+        await query.message.answer(escape(str(exc)))
+        return
+    except AugestelOperationOutcomeUnknown:
+        await _audit(
+            user.id,
+            "return_all",
+            "outcome_unknown",
+            "Write result unknown; do not retry until the live My Numbers count has been checked.",
+        )
+        await query.message.answer(
+            "⚠️ Hasil Return All belum bisa dipastikan. Jangan jalankan ulang dulu. "
+            "Periksa <code>/numbers</code> dan dashboard Augestel untuk memastikan jumlah nomor tersisa."
+        )
+        return
+    except AugestelIntegrationError as exc:
+        await _audit(
+            user.id,
+            "return_all",
+            "failed",
+            "Augestel did not provide a confirmed success response; no automatic retry was made.",
+        )
+        await query.message.answer(f"Return All gagal: {escape(str(exc))}")
+        return
+    except Exception as exc:
+        logger.error("Unexpected Return All error for Telegram user %s (%s)", user.id, type(exc).__name__)
+        await _audit(user.id, "return_all", "outcome_unknown", "Unexpected write error; check account before retry.")
+        await query.message.answer(
+            "Respons Return All tidak dapat dipastikan. Periksa <code>/numbers</code> sebelum mencoba lagi."
+        )
+        return
+
+    await _audit(
+        user.id,
+        "return_all",
+        "success",
+        "Augestel returned success for Return All; verify the resulting number count with /numbers.",
+    )
+    await query.message.answer(
+        "✅ Augestel mengembalikan status sukses untuk Return All. "
+        "Jalankan <code>/numbers</code> untuk memverifikasi jumlah nomor yang tersisa."
+    )
 
 
 @router.callback_query(lambda query: query.data == "return_all:cancel")
-async def cancel_return_all_callback(query: CallbackQuery) -> None:
+async def cancel_return_all_callback(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     await query.answer("Dibatalkan.")
     if query.from_user:
         await _audit(
@@ -396,7 +661,7 @@ async def cancel_return_all_callback(query: CallbackQuery) -> None:
             "cancelled",
             "User cancelled before execution; no request was sent.",
         )
-    if query.message:
+    if isinstance(query.message, Message):
         await query.message.answer("Return All dibatalkan. Tidak ada request yang dikirim.")
 
 

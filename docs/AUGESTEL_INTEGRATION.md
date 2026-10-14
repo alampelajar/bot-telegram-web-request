@@ -46,3 +46,14 @@ Some dashboard requests include a header named `X-CSRF-Token`; this is evidence 
 To identify the actual login process, start a **new** DevTools Network recording at the Augestel login page before entering credentials, enable Preserve log, then sign in normally. The capture needs to show the request method/path and response status for the login attempt. Do not send a raw HAR if it contains passwords, session cookies, CSRF values, authorization headers, or tokens; provide a redacted screenshot of the request metadata instead.
 
 Until an approved authentication contract is confirmed, the bot's `auth_method_required` state remains correct and no credentials should be collected by the bot.
+
+
+## Findings from `augestel.com.login(1).har` (2026-10-14)
+
+The second capture contains 10 requests, but it still does **not** include a login form submission or an authentication response:
+
+- Three static JSON/media resources were fetched.
+- The dashboard made read-only GET requests to live totals, live history, termination metadata, and latest notifications, each returning HTTP 200.
+- Two POST requests were sent to challenge-related paths, `/cap/start` and `/cap/puzzle`. These appear to be part of a challenge flow, not a login form submission. Their tokens, image/challenge payloads, and proof values are deliberately omitted from this documentation.
+
+There is no captured request that conclusively establishes how a username/password login is submitted or how an authenticated session is created. Do not implement or attempt to bypass the challenge flow based on this HAR. Use an Augestel-supported authentication mechanism or obtain guidance from the provider. If further capture is needed, capture from a fresh unauthenticated login page and share only a redacted screenshot of request metadata—not a raw HAR containing challenge tokens or session data.

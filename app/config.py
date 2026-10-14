@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     # Users provide their own API key in a private bot chat. This key encrypts stored keys at rest.
     api_key_encryption_key: SecretStr = Field(default=SecretStr(""))
     augestel_integration_enabled: bool = False
+    # Separate opt-in: observed website write routes are not part of the documented API v1.
+    augestel_custom_write_enabled: bool = False
     app_env: str = "development"
     log_level: str = "INFO"
     export_tmp_dir: str = "./tmp/exports"

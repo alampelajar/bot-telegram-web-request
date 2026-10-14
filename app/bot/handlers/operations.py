@@ -329,7 +329,7 @@ async def terminations_command(message: Message) -> None:
                 f"A2P <code>{rate_text}</code>{default_label}"
             )
         lines.append("")
-        if len("\\n".join(lines)) > 3400:
+        if len("\n".join(lines)) > 3400:
             truncated = True
             lines = lines[:-1]
             break
@@ -344,7 +344,7 @@ async def terminations_command(message: Message) -> None:
             "Contoh format: <code>/addnumber 12345 123456 5 random</code> (nilai contoh saja).",
         ]
     )
-    await message.answer("\\n".join(lines))
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("addnumber"))

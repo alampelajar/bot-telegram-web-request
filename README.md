@@ -6,7 +6,8 @@ Telegram bot for managing an authorized Augestel account.
 
 - Telegram user registration and per-user account connection state
 - Add Number input validation and local draft preparation (no external request yet)
-- Download Augestel XLSX export (integration adapter is guarded)
+- Bearer-token API client foundation for read-only JSON GET requests
+- Download Augestel export (feature adapter remains guarded)
 - Return All workflow with explicit confirmation and safety checks
 - Operation history and access-control foundations
 
@@ -22,7 +23,9 @@ Telegram bot for managing an authorized Augestel account.
 
 ## Status
 
-The Telegram menu and persistent user/account status are implemented. The `/addnumber` command can validate a local draft from the observed business fields, but it does not execute an Augestel request. Actual authentication and all website operations remain disabled until an approved authentication method and request contract are confirmed. Observed website routes are not proof of a supported public API.
+Augestel's API documentation states that requests use `Authorization: Bearer YOUR_API_KEY`. The application now supports a secret API-key setting and a guarded, read-only JSON GET client. Set `AUGESTEL_API_BASE_URL` to the exact Base URL shown in Augestel API documentation; it is deliberately blank by default rather than guessed.
+
+The integration remains disabled by default. No actual API endpoint has yet been called because the documented Base URL and endpoint paths have not been confirmed. The `/addnumber` command validates a local draft only. Add Number submission, export download, and Return All are still unimplemented and do not send requests.
 
 ## Local quick start
 
@@ -38,8 +41,6 @@ To validate an Add Number draft, use:
 /addnumber <termination_id> <termination_term_id> <count> <sort_type>
 ```
 
-This validates the syntax and saves an operation-history record. It does **not** send a request. Do not include passwords, cookies, CSRF tokens, or session tokens in the command.
+This validates the syntax and saves an operation-history record. It does **not** send a request.
 
-Local development defaults to SQLite and creates `data/automatic_web_controller.db` automatically. For Docker, set a strong `POSTGRES_PASSWORD` in `.env` and run `docker compose up --build`.
-
-Never commit `.env`, session cookies, API tokens, credentials, HAR files, or exported account data.
+For API access, store the regenerated Augestel API key only in local `.env` or a deployment secret manager. Never commit `.env`, API keys, session cookies, credentials, HAR files, or exported account data. The API key visible in the earlier screenshot should be regenerated before use.

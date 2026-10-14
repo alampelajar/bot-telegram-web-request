@@ -1,42 +1,128 @@
+import logging
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
+from app.services.accounts import (
+    disconnect_account,
+    get_account_status,
+    register_or_touch_user,
+    set_connection_pending,
+)
+
 router = Router()
+logger = logging.getLogger(__name__)
 
 
-async def _show_connect_info(message: Message) -> None:
+def _status_label(status: str) -> str:
+    return {
+        "not_registered": "Belum terdaftar",
+        "not_connected": "Belum terhubung",
+        "disconnected": "Terputus",
+        "auth_method_required": "Menunggu metode autentikasi",
+        "connected": "Terhubung",
+        "auth_failed": "Autentikasi gagal",
+        "session_expired": "Sesi kedaluwarsa",
+    }.get(status, status.replace("_", " ").capitalize())
+
+
+async def _connect_account(message: Message) -> None:
+    user = message.from_user
+    if user is None:
+        await message.answer("Identitas Telegram tidak tersedia.")
+        return
+    try:
+        user_id = await register_or_touch_user(
+            telegram_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+        )
+        status = await set_connection_pending(user_id)
+    except Exception:
+        logger.exception("Could not initialize account connection")
+        await message.answer(
+            "Tidak dapat menyiapkan koneksi akun karena database bermasalah. "
+            "Periksa database dan coba lagi."
+        )
+        return
+
     await message.answer(
-        "Koneksi Augestel belum dikonfigurasi.\n\n"
-        "Untuk keamanan, jangan kirim password, cookie, atau token sesi melalui chat. "
-        "Metode autentikasi resmi harus dikonfirmasi sebelum koneksi akun diaktifkan."
+        "<b>Connect Augestel</b>\n\n"
+        "Permintaan koneksi sudah dicatat. Status: "
+        f"<code>{_status_label(status.connection_status)}</code>.\n\n"
+        "Bot belum login ke Augestel. Metode autentikasi yang diizinkan untuk integrasi "
+        "belum dikonfirmasi. Jangan kirim password, cookie, atau token sesi melalui chat. "
+        "Koneksi hanya akan diaktifkan setelah metode autentikasi resmi tersedia."
     )
+
+
+async def _show_account_status(message: Message) -> None:
+    user = message.from_user
+    if user is None:
+        await message.answer("Identitas Telegram tidak tersedia.")
+        return
+    try:
+        status = await get_account_status(user.id)
+    except Exception:
+        logger.exception("Could not load account status")
+        await message.answer("Gagal membaca status akun. Periksa koneksi database.")
+        return
+
+    validated = (
+        status.last_validated_at.strftime("%Y-%m-%d %H:%M UTC")
+        if status.last_validated_at
+        else "Belum pernah"
+    )
+    await message.answer(
+        "<b>My Account</b>\n"
+        f"Provider: <code>{status.provider}</code>\n"
+        f"Status: <code>{_status_label(status.connection_status)}</code>\n"
+        f"Validasi terakhir: <code>{validated}</code>"
+    )
+
+
+async def _disconnect_account(message: Message) -> None:
+    user = message.from_user
+    if user is None:
+        await message.answer("Identitas Telegram tidak tersedia.")
+        return
+    try:
+        disconnected = await disconnect_account(user.id)
+    except Exception:
+        logger.exception("Could not disconnect account")
+        await message.answer("Gagal memutuskan koneksi. Periksa koneksi database.")
+        return
+    if disconnected:
+        await message.answer("Status koneksi Augestel sudah diubah menjadi disconnected.")
+    else:
+        await message.answer("Belum ada koneksi Augestel yang perlu diputuskan.")
 
 
 @router.message(Command("connect"))
 async def connect_command(message: Message) -> None:
-    await _show_connect_info(message)
+    await _connect_account(message)
 
 
 @router.message(Command("account"))
 async def account_command(message: Message) -> None:
-    await message.answer(
-        "<b>Status Akun</b>\nAugestel: <code>NOT_CONNECTED</code>\n"
-        "Integrasi produksi belum diaktifkan."
-    )
+    await _show_account_status(message)
+
+
+@router.message(Command("disconnect"))
+async def disconnect_command(message: Message) -> None:
+    await _disconnect_account(message)
 
 
 @router.callback_query(lambda query: query.data == "menu:connect")
 async def connect_menu(query: CallbackQuery) -> None:
     await query.answer()
     if query.message:
-        await _show_connect_info(query.message)
+        await _connect_account(query.message)
 
 
 @router.callback_query(lambda query: query.data == "menu:account")
 async def account_menu(query: CallbackQuery) -> None:
     await query.answer()
     if query.message:
-        await query.message.answer(
-            "Status akun: <code>NOT_CONNECTED</code>. Integrasi belum diaktifkan."
-        )
+        await _show_account_status(query.message)

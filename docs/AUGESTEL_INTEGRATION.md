@@ -189,3 +189,8 @@ AUGESTEL_CUSTOM_WRITE_ENABLED=true
 ```
 
 Use only an account you control, double-check the account and count before confirming Return All, and do not run destructive tests against an account with numbers you need to keep.
+
+
+### Termination discovery command
+
+The bot exposes `/terminations` for private-chat users with a connected API key. It fetches fresh website page/metadata through the guarded custom-write adapter and displays the termination numeric ID, current available count, max-per-request, allowed `number_sort_type`, and numeric term IDs. It intentionally omits `request_token` from its response. Users should use these returned IDs/allowed sort value when invoking `/addnumber`. This discovery route is gated by both integration flags because it calls an observed website route, not the documented public API.

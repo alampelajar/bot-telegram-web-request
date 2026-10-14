@@ -4,6 +4,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.bot.handlers import router
 from app.config import get_settings
@@ -24,7 +25,7 @@ async def main() -> None:
     logger.info("Database schema ready")
 
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dispatcher = Dispatcher()
+    dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.include_router(router)
     logger.info("Automatic Web Controller starting")
     try:

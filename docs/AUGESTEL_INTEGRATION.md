@@ -34,7 +34,7 @@ Before implementing remaining feature operations:
 5. Never blindly retry a timed-out Return All; first determine whether the provider completed it.
 6. Do not use browser cookies, CSRF tokens, or challenge payloads for the API client.
 
-Actual Add Number submission, export download, and Return All remain unimplemented and blocked. The read-only My Numbers endpoint is implemented as described below.
+Add Number and Return All now have guarded custom adapters targeting the website routes observed in HAR. They remain disabled by default because those routes are not in the published API v1 docs, and their acceptance of Bearer API keys has not been verified. Export download remains blocked pending its response contract. The read-only My Numbers endpoint is implemented as described below.
 
 
 ## Findings from `augestel.com.login.har` (2026-10-14)
@@ -102,7 +102,7 @@ The bot now accepts a local draft command:
 
 The four business fields are based on the observed browser form submission. The command validates identifiers, positive count, and safe sort-type syntax; a conservative local draft ceiling of 1,000 prevents accidental oversized drafts. This ceiling is an application safeguard, not an Augestel limit.
 
-A valid draft is recorded as `draft_prepared_not_sent`. **No network request is sent.** The helper does not accept `_token`, `request_token`, passwords, cookies, or session values. Those fields must never be copied from HAR or supplied by Telegram users. Actual submission remains disabled until provider-approved authentication and endpoint semantics are verified.
+A valid draft is recorded as a confirmation request and presents an explicit confirm/cancel keyboard. On confirmation, the adapter may POST only the business fields to the observed website route if `AUGESTEL_CUSTOM_WRITE_ENABLED=true`; it does not send or invent `_token`/`request_token` values and does not use cookies or browser session values. If the route requires those protections, the operation must fail safely rather than bypass them. Since the write route is not a documented API endpoint, a successful live operation has not yet been verified.
 
 
 ## Bearer API client foundation (2026-10-14)
@@ -121,7 +121,7 @@ AUGESTEL_INTEGRATION_ENABLED=true
 
 Generate the Fernet key using `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Back up this master key securely; if it is lost or changed, already stored API keys cannot be decrypted.
 
-The API Base URL is taken directly from the documentation supplied by the user. `GET /numbers` is implemented via `AugestelClient.list_numbers()` and exposed in the Telegram menu as **My Numbers** and the `/numbers` command. Add Number, export download, and Return All remain guarded placeholders until their API endpoints, payloads, scopes, and response formats are verified.
+The API Base URL is taken directly from the documentation supplied by the user. `GET /numbers` is implemented via `AugestelClient.list_numbers()` and exposed in **My Numbers** and `/numbers`. Add Number and Return All have separate guarded website-route adapters documented below; export download remains a placeholder pending a confirmed response format.
 
 **Key rotation:** the earlier screenshot showed an API key visibly. Treat that key as exposed and regenerate it in the Augestel dashboard before using any key locally.
 
@@ -146,7 +146,7 @@ The application now uses `AugestelClient.list_numbers()` and surfaces this read-
 
 The feature remains disabled by default. Set `API_KEY_ENCRYPTION_KEY` in the operator environment, regenerate any API key previously visible in the screenshot, and set `AUGESTEL_INTEGRATION_ENABLED=true` only when intentionally allowing the documented read-only API. Each user then connects their regenerated key through `/connect` in the private chat. The CI tests use mocked HTTP responses; no live request was sent from the development process.
 
-Add Number, export, and Return All remain disabled until their documented API endpoints and payloads are supplied.
+Add Number and Return All are implemented as optional custom website-route attempts, but remain disabled by default and may fail if Bearer auth is not accepted. Export download remains disabled pending its response contract.
 
 
 ## Per-user API key intake and storage (2026-10-14)
@@ -166,3 +166,26 @@ Message deletion is best-effort, not a guarantee. API keys should only be sent i
 The operator must generate `API_KEY_ENCRYPTION_KEY` once and back it up securely. Do not change it casually: existing key ciphertext cannot be decrypted after the master key is lost or replaced. Existing database schemas are updated with an `api_key_encrypted` column without dropping existing data.
 
 The FSM uses in-memory storage, so an interrupted connect prompt can be lost on bot restart; the user can simply start `/connect` again.
+
+
+## Custom Add Number and Return All adapters (2026-10-14)
+
+The provider's published API documentation supplied in this conversation does not list write endpoints. The user reported that Augestel support said these flows may be implemented separately. The following website routes were observed in user-provided HAR files:
+
+- Add Number: `POST https://augestel.com/Switchfy/client/numbers/request`
+- Return All: `POST https://augestel.com/Switchfy/client/numbers/bulk-return-all`
+
+These remain **observed website routes, not documented public API endpoints**. The adapter is opt-in via `AUGESTEL_CUSTOM_WRITE_ENABLED=false` (default). It sends the connected Telegram user's own API key in an `Authorization: Bearer` header to the same HTTPS origin; that use against website routes is an unverified assumption until Augestel confirms it is supported. It sends only the Add Number business fields that were observed: `termination_id`, `termination_term_id`, `count`, and `sort_type`. It does not fabricate, scrape, or replay `_token`, `request_token`, browser cookies, or CSRF values, and it never follows redirects.
+
+The bot validates Add Number input, previews the target/count, and requires a confirm click. Return All first reads the current count via the documented `GET /numbers`, previews that count, and rechecks the count at confirmation time; if the count changed, a fresh confirmation is required. Both flows clear their pending confirmation state before sending a POST so repeated button clicks don't issue another request.
+
+Because POSTs can be processed before a redirect, timeout, 5xx, or connection failure, the client marks those responses as `outcome_unknown`. The bot never retries automatically: users must check `/numbers` and the Augestel portal before deciding what to do next. A 401/403 is reported as lack of authorization; a 419 explicitly says browser/CSRF protection is not bypassed. If these website routes require a browser session, the API key alone will not make them work; obtain a supported mechanism from Augestel rather than copying browser tokens from HAR.
+
+To attempt these custom routes in a local test environment only, the operator must deliberately set both:
+
+```dotenv
+AUGESTEL_INTEGRATION_ENABLED=true
+AUGESTEL_CUSTOM_WRITE_ENABLED=true
+```
+
+Use only an account you control, double-check the account and count before confirming Return All, and do not run destructive tests against an account with numbers you need to keep.

@@ -1,8 +1,7 @@
-"""Safe bearer-token client foundation for Augestel's documented REST API.
+"""Safe bearer-token client for Augestel's documented REST API.
 
-Only read-only JSON GET requests are implemented here. Endpoint paths must come
-from Augestel's API documentation; browser-only routes are not assumed to be
-public API routes. The integration stays disabled unless explicitly enabled.
+Read-only endpoint support is based on the user-provided API documentation.
+Write operations remain guarded until their documented contracts are provided.
 """
 from dataclasses import dataclass, field
 from typing import Any
@@ -40,8 +39,8 @@ class AugestelClient:
         settings = get_settings()
         if not settings.augestel_integration_enabled:
             raise AugestelIntegrationDisabled(
-                "Augestel API integration is disabled. Enable it only after the API base URL "
-                "and required endpoint contracts have been verified."
+                "Augestel API integration is disabled. Enable it only after the documented "
+                "API endpoints are verified."
             )
 
         token = self.api_key.get_secret_value().strip() if self.api_key else ""
@@ -95,12 +94,7 @@ class AugestelClient:
         *,
         params: dict[str, str | int | bool] | None = None,
     ) -> Any:
-        """Make a read-only GET with Authorization: Bearer <API key>.
-
-        Redirects are disabled so the Authorization header cannot be forwarded
-        to a redirect target. Error text intentionally excludes response bodies,
-        URLs, and credentials because provider responses can contain sensitive data.
-        """
+        """Make a read-only GET with Authorization: Bearer <API key>."""
         token = self._ensure_enabled()
         base_url = self._validated_base_url()
         safe_path = self._validated_path(path)
@@ -161,6 +155,53 @@ class AugestelClient:
             return response.json()
         except ValueError as exc:
             raise AugestelIntegrationError("Augestel API returned invalid JSON.") from exc
+
+    async def list_numbers(
+        self,
+        *,
+        page: int = 1,
+        per_page: int = 20,
+        range_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch the documented read-only GET /numbers resource."""
+        if isinstance(page, bool) or page < 1:
+            raise AugestelIntegrationError("page must be an integer greater than or equal to 1.")
+        if isinstance(per_page, bool) or not 1 <= per_page <= 100:
+            raise AugestelIntegrationError("per_page must be between 1 and 100.")
+
+        params: dict[str, str | int | bool] = {"page": page, "per_page": per_page}
+        if range_name is not None and range_name.strip():
+            params["range_name"] = range_name.strip()[:100]
+
+        payload = await self.get_json("/numbers", params=params)
+        if not isinstance(payload, dict) or payload.get("success") is not True:
+            raise AugestelIntegrationError("Augestel API returned an unsuccessful numbers response.")
+
+        records = payload.get("data")
+        pagination = payload.get("pagination")
+        if not isinstance(records, list) or not isinstance(pagination, dict):
+            raise AugestelIntegrationError("Augestel API numbers response has an unexpected schema.")
+
+        validated_records: list[dict[str, Any]] = []
+        for item in records:
+            if not isinstance(item, dict):
+                raise AugestelIntegrationError("Augestel API returned an invalid number record.")
+            number = item.get("number")
+            range_label = item.get("range_name")
+            if not isinstance(number, str) or not isinstance(range_label, str):
+                raise AugestelIntegrationError("Augestel API returned an invalid number record.")
+            validated_records.append(item)
+
+        for key in ("current_page", "per_page", "total", "last_page"):
+            value = pagination.get(key)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise AugestelIntegrationError("Augestel API returned invalid pagination metadata.")
+
+        return {
+            "success": True,
+            "data": validated_records,
+            "pagination": pagination,
+        }
 
     async def get_export(self) -> bytes:
         self._ensure_enabled()

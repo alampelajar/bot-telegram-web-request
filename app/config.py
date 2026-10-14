@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     )
     augestel_base_url: str = "https://augestel.com"
     augestel_api_base_url: str = "https://augestel.com/api/v1/iprn"
-    augestel_api_key: SecretStr = Field(default=SecretStr(""))
+    # Users provide their own API key in a private bot chat. This key encrypts stored keys at rest.
+    api_key_encryption_key: SecretStr = Field(default=SecretStr(""))
     augestel_integration_enabled: bool = False
     app_env: str = "development"
     log_level: str = "INFO"

@@ -6,6 +6,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.keyboards import confirm_return_all
+from app.services.add_number_draft import AddNumberDraftError, parse_add_number_draft
 from app.services.operation_history import list_operations, record_operation
 
 router = Router()
@@ -42,7 +43,42 @@ async def _not_enabled(message: Message, feature: str, operation: str | None = N
 
 @router.message(Command("addnumber"))
 async def add_number_command(message: Message) -> None:
-    await _not_enabled(message, "Add Number", "add_number")
+    text = message.text or ""
+    _, _, arguments = text.partition(" ")
+    if not arguments.strip():
+        await message.answer(
+            "<b>Draft Add Number</b>\n\n"
+            "Format: <code>/addnumber &lt;termination_id&gt; "
+            "&lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\n"
+            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\n\n"
+            "Ini hanya memvalidasi draft lokal. Nilai ID harus diperoleh dari akun Anda. "
+            "Token CSRF/session tidak boleh dimasukkan. Draft yang valid tetap tidak dikirim "
+            "ke Augestel karena autentikasi integrasi belum tersedia."
+        )
+        return
+
+    try:
+        draft = parse_add_number_draft(arguments)
+    except AddNumberDraftError as exc:
+        await message.answer(f"Parameter tidak valid: {escape(str(exc))}")
+        return
+
+    if message.from_user is not None:
+        await _audit(
+            message.from_user.id,
+            "add_number",
+            "draft_prepared_not_sent",
+            "Local draft validated; no request sent because Augestel authentication is not enabled.",
+        )
+    await message.answer(
+        "<b>Draft Add Number tervalidasi</b>\n"
+        f"Termination ID: <code>{escape(draft.termination_id)}</code>\n"
+        f"Billing term ID: <code>{escape(draft.termination_term_id)}</code>\n"
+        f"Jumlah: <code>{draft.count}</code>\n"
+        f"Sort type: <code>{escape(draft.sort_type)}</code>\n\n"
+        "<b>Belum dieksekusi.</b> Tidak ada request dikirim ke Augestel. "
+        "Autentikasi yang disetujui dan kontrak request masih perlu dikonfirmasi."
+    )
 
 
 @router.message(Command("download"))

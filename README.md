@@ -72,7 +72,7 @@ The IDs must be numeric values from Augestel, and `sort_type` must match the cur
 
 ## Return All
 
-Use the **↩️ Return All** menu or `/returnall`. The bot reads the current total, shows it, and asks for confirmation. If the number count changes before confirmation, it asks you to review the new count. This action can return all assigned numbers. If the result is uncertain, do not retry until checking the account.
+Use `/terminations` first to list current termination and term IDs, available count, maximum per request, and `sort_type` values. The output omits dynamic request tokens. Then use `/addnumber <termination_id> <termination_term_id> <count> <sort_type>`. The bot validates the draft and asks for explicit confirmation.\n\nUse the **↩️ Return All** menu or `/returnall`. The bot reads the current total, shows it, and asks for confirmation. If the number count changes before confirmation, it asks you to review the new count. This action can return all assigned numbers. If the result is uncertain, do not retry until checking the account.
 
 ## Current limitations
 

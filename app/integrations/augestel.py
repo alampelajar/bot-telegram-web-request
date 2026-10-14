@@ -28,11 +28,16 @@ class AugestelClient:
     transport: httpx.AsyncBaseTransport | None = field(default=None, repr=False, compare=False)
 
     @classmethod
-    def from_settings(cls) -> "AugestelClient":
+    def from_settings(cls, api_key: SecretStr | None = None) -> "AugestelClient":
+        """Build a client for one specific user-provided API key.
+
+        No process-wide API key is configured: callers must supply the key
+        belonging to the Telegram user whose account they are accessing.
+        """
         settings = get_settings()
         return cls(
             base_url=settings.augestel_api_base_url.rstrip("/"),
-            api_key=settings.augestel_api_key,
+            api_key=api_key,
         )
 
     def _ensure_enabled(self) -> str:
@@ -46,7 +51,7 @@ class AugestelClient:
         token = self.api_key.get_secret_value().strip() if self.api_key else ""
         if not token:
             raise AugestelIntegrationDisabled(
-                "AUGESTEL_API_KEY is not configured. Store the API key in the local .env file."
+                "No API key is connected to this user. Connect an Augestel API key in a private chat first."
             )
         return token
 

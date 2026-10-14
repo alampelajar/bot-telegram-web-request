@@ -223,14 +223,164 @@ class AugestelClient:
             "Export adapter is not implemented; verify the documented API endpoint and response format."
         )
 
+    def _ensure_custom_writes_enabled(self) -> str:
+        token = self._ensure_enabled()
+        if not get_settings().augestel_custom_write_enabled:
+            raise AugestelIntegrationDisabled(
+                "Custom Add Number/Return All requests are disabled. The operator must explicitly "
+                "enable AUGESTEL_CUSTOM_WRITE_ENABLED after reviewing the observed website routes."
+            )
+        return token
+
+    async def _post_website_form(
+        self,
+        path: str,
+        *,
+        data: dict[str, str | int],
+    ) -> dict[str, Any]:
+        """Attempt a user-authorized website action with Bearer auth only.
+
+        These two routes were observed in the user's HAR and are not documented API v1
+        endpoints. No browser cookie, CSRF token, or request_token is invented/replayed.
+        If Augestel requires a browser session or challenge, this fails closed.
+        """
+        token = self._ensure_custom_writes_enabled()
+        allowed_paths = {
+            "/Switchfy/client/numbers/request",
+            "/Switchfy/client/numbers/bulk-return-all",
+        }
+        if path not in allowed_paths:
+            raise AugestelIntegrationError("Website write path is not in the explicit allowlist.")
+
+        settings = get_settings()
+        website_base = settings.augestel_base_url.rstrip("/")
+        parsed = urlsplit(website_base)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "augestel.com"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.port not in (None, 443)
+        ):
+            raise AugestelIntegrationError(
+                "AUGESTEL_BASE_URL must be exactly https://augestel.com for these observed routes."
+            )
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(20.0, connect=5.0),
+                follow_redirects=False,
+                transport=self.transport,
+            ) as client:
+                response = await client.post(
+                    f"{website_base}{path}",
+                    data=data,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                    },
+                )
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            # The server may have processed a POST before the connection failed.
+            raise AugestelOperationOutcomeUnknown(
+                "The Augestel write request ended without a confirmed response. Check My Numbers "
+                "before retrying; the bot will not retry automatically."
+            ) from exc
+
+        if 300 <= response.status_code < 400:
+            # A website redirect can follow a successful form submission. Never retry blindly.
+            raise AugestelOperationOutcomeUnknown(
+                "Augestel returned a redirect after the write request. Its result is unknown; "
+                "check My Numbers in the portal/bot before considering another attempt. "
+                "Redirects were not followed."
+            )
+        if response.status_code in (401, 403):
+            raise AugestelIntegrationError(
+                f"Augestel did not authorize the custom website write request (HTTP {response.status_code}). "
+                "The API key may be limited to the documented API v1 routes."
+            )
+        if response.status_code == 419:
+            raise AugestelIntegrationError(
+                "The website route requires a CSRF/browser session. This bot does not bypass that protection."
+            )
+        if response.status_code == 422:
+            raise AugestelIntegrationError(
+                "Augestel rejected the custom write form (HTTP 422). Required form fields or a supported "
+                "write contract may be missing; no automatic retry was made."
+            )
+        if response.status_code == 429:
+            raise AugestelIntegrationError(
+                "Augestel rate-limited the custom write request (HTTP 429). Check the account before retrying."
+            )
+        if response.status_code >= 500:
+            raise AugestelOperationOutcomeUnknown(
+                f"Augestel returned HTTP {response.status_code} after a write request. "
+                "Check My Numbers before retrying; the bot will not retry automatically."
+            )
+        if response.is_error:
+            raise AugestelIntegrationError(
+                f"Augestel rejected the custom write request (HTTP {response.status_code})."
+            )
+
+        if "application/json" not in response.headers.get("content-type", "").lower():
+            raise AugestelOperationOutcomeUnknown(
+                "Augestel returned a non-JSON response to the write request. The result is unknown; "
+                "check My Numbers before retrying."
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise AugestelOperationOutcomeUnknown(
+                "Augestel returned invalid JSON after a write request. Check My Numbers before retrying."
+            ) from exc
+        if not isinstance(payload, dict):
+            raise AugestelOperationOutcomeUnknown(
+                "Augestel returned an unexpected write response. Check My Numbers before retrying."
+            )
+        if payload.get("success") is not True:
+            # Do not send raw response details to Telegram or activity logs.
+            raise AugestelIntegrationError(
+                "Augestel did not confirm that the operation succeeded. Check My Numbers before retrying."
+            )
+        return payload
+
     async def add_numbers(self, payload: dict[str, Any]) -> dict[str, Any]:
-        self._ensure_enabled()
-        raise AugestelIntegrationError(
-            "Add Number submission is not implemented; verify the documented API payload first."
+        """Submit the observed Add Number form fields after explicit user confirmation.
+
+        Only the business fields are sent. CSRF/request tokens are deliberately not
+        scraped, fabricated, or replayed; if the route requires them it must fail safely.
+        """
+        termination_id = payload.get("termination_id")
+        termination_term_id = payload.get("termination_term_id")
+        count = payload.get("count")
+        sort_type = payload.get("sort_type")
+        if not isinstance(termination_id, str) or not termination_id.strip() or len(termination_id) > 100:
+            raise AugestelIntegrationError("termination_id is required and must be at most 100 characters.")
+        if not isinstance(termination_term_id, str) or not termination_term_id.strip() or len(termination_term_id) > 100:
+            raise AugestelIntegrationError("termination_term_id is required and must be at most 100 characters.")
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 1000:
+            raise AugestelIntegrationError("count must be an integer between 1 and 1000.")
+        if not isinstance(sort_type, str) or not sort_type.strip() or len(sort_type) > 32:
+            raise AugestelIntegrationError("sort_type is required and must be at most 32 characters.")
+        return await self._post_website_form(
+            "/Switchfy/client/numbers/request",
+            data={
+                "termination_id": termination_id.strip(),
+                "termination_term_id": termination_term_id.strip(),
+                "count": count,
+                "sort_type": sort_type.strip(),
+            },
         )
 
     async def return_all(self) -> dict[str, Any]:
-        self._ensure_enabled()
-        raise AugestelIntegrationError(
-            "Return All is not implemented; verify the documented API endpoint and confirmation semantics."
+        """Return all assigned numbers only after an explicit confirmation."""
+        return await self._post_website_form(
+            "/Switchfy/client/numbers/bulk-return-all",
+            data={},
         )
+
+
+class AugestelOperationOutcomeUnknown(AugestelIntegrationError):
+    """A write request may have been processed but has no trustworthy success response."""

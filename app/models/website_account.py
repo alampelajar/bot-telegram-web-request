@@ -14,8 +14,10 @@ class WebsiteAccount(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     provider: Mapped[str] = mapped_column(String(40), default="augestel")
     connection_status: Mapped[str] = mapped_column(String(30), default="disconnected")
-    # Secrets will be encrypted and stored only after a supported authentication flow is established.
+    # Legacy field retained for schema compatibility; not used for API keys.
     secret_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Fernet ciphertext only. The encryption key is stored outside the database in the environment.
+    api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

@@ -40,6 +40,17 @@ def numbers_pagination(page: int, last_page: int) -> InlineKeyboardMarkup | None
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
 
+def confirm_add_number() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Confirm Add Number", callback_data="add_number:confirm"),
+                InlineKeyboardButton(text="Cancel", callback_data="add_number:cancel"),
+            ]
+        ]
+    )
+
+
 def confirm_return_all() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

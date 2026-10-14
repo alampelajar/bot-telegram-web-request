@@ -23,3 +23,26 @@ Before implementing actual login:
 8. Never commit HAR files, cookies, bearer tokens, passwords, or export data.
 
 The adapter intentionally raises an error rather than sending guessed requests until the above are confirmed.
+
+
+## Findings from `augestel.com.login.har` (2026-10-14)
+
+The provided capture contains seven requests, all GET requests after a user session was already active. It does **not** contain a login form submission, authentication POST, redirect to an authenticated session, or a response that establishes credentials. Therefore, this HAR is insufficient to implement actual account login.
+
+Observed read-only requests in the capture:
+
+| Method | Path | Status | Response keys observed |
+|---|---|---:|---|
+| GET | `/Switchfy/test/live-totals` | 200 | `capped`, `senders`, `terminations`, `countries`, `messages`, `ranges`, `countries_total`, `success` |
+| GET | `/Switchfy/test/live-history` | 200 | `success`, `records` |
+| GET | `/Switchfy/test/termination-meta` | 200 | `success`, `terms` |
+
+The captured requests include a query parameter named `limit` for live-totals/live-history, and `ids` for termination-meta. Values and session headers are intentionally not copied into this document.
+
+Some dashboard requests include a header named `X-CSRF-Token`; this is evidence of a CSRF-related header, not evidence about how the token is obtained, scoped, or refreshed. Do not hardcode its value or reuse it from HAR.
+
+### How to capture the missing login flow
+
+To identify the actual login process, start a **new** DevTools Network recording at the Augestel login page before entering credentials, enable Preserve log, then sign in normally. The capture needs to show the request method/path and response status for the login attempt. Do not send a raw HAR if it contains passwords, session cookies, CSRF values, authorization headers, or tokens; provide a redacted screenshot of the request metadata instead.
+
+Until an approved authentication contract is confirmed, the bot's `auth_method_required` state remains correct and no credentials should be collected by the bot.

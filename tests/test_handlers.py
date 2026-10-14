@@ -12,6 +12,7 @@ async def test_return_all_confirmation_does_not_send_request() -> None:
     message.answer = AsyncMock()
     query = MagicMock(spec=CallbackQuery)
     query.data = "return_all:confirm"
+    query.from_user = MagicMock(id=700001)
     query.message = message
     query.answer = AsyncMock()
 
@@ -28,6 +29,7 @@ async def test_return_all_cancel_does_not_send_request() -> None:
     message.answer = AsyncMock()
     query = MagicMock(spec=CallbackQuery)
     query.data = "return_all:cancel"
+    query.from_user = MagicMock(id=700001)
     query.message = message
     query.answer = AsyncMock()
 

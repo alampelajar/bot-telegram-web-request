@@ -15,8 +15,7 @@ class Settings(BaseSettings):
         )
     )
     augestel_base_url: str = "https://augestel.com"
-    # Set this only to the Base URL shown in Augestel's API documentation.
-    augestel_api_base_url: str = ""
+    augestel_api_base_url: str = "https://augestel.com/api/v1/iprn"
     augestel_api_key: SecretStr = Field(default=SecretStr(""))
     augestel_integration_enabled: bool = False
     app_env: str = "development"

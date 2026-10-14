@@ -2,6 +2,7 @@ import logging
 from html import escape
 
 from aiogram import Router
+from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
@@ -11,8 +12,8 @@ from app.integrations.augestel import (
     AugestelIntegrationDisabled,
     AugestelIntegrationError,
 )
-from app.services.add_number_draft import AddNumberDraftError, parse_add_number_draft
 from app.services.accounts import load_api_key_for_user
+from app.services.add_number_draft import AddNumberDraftError, parse_add_number_draft
 from app.services.operation_history import list_operations, record_operation
 from app.services.secret_store import SecretStorageError
 
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class AugestelAccountNotConnected(RuntimeError):
-    pass
+    """The Telegram user has not securely connected their own Augestel API key."""
 
 
 async def _audit(telegram_id: int, operation: str, status: str, summary: str) -> None:
@@ -33,7 +34,7 @@ async def _audit(telegram_id: int, operation: str, status: str, summary: str) ->
             result_summary=summary,
         )
     except Exception:
-        # Audit failures are logged but must never expose credentials or stop a safe refusal.
+        # Never place credentials or full API responses in activity history.
         logger.exception("Could not record operation event: %s (%s)", operation, status)
 
 
@@ -43,12 +44,11 @@ async def _not_enabled(message: Message, feature: str, operation: str | None = N
             message.from_user.id,
             operation,
             "blocked_integration_disabled",
-            "No request was sent; Augestel integration is disabled.",
+            "No request was sent; this operation is not enabled.",
         )
     await message.answer(
         f"<b>{escape(feature)}</b> belum dieksekusi.\n"
-        "Integrasi Augestel masih dalam mode aman karena endpoint/fitur ini belum diverifikasi. "
-        "Tidak ada request ke Augestel yang dikirim."
+        "Endpoint API untuk fitur ini belum diverifikasi. Tidak ada request yang dikirim."
     )
 
 
@@ -78,7 +78,11 @@ def _format_number_page(payload: dict) -> tuple[str, object | None]:
             else:
                 rate = "—"
             limit_value = record.get("portal_limit_a2p")
-            limit = str(limit_value) if isinstance(limit_value, int) and not isinstance(limit_value, bool) else "—"
+            limit = (
+                str(limit_value)
+                if isinstance(limit_value, int) and not isinstance(limit_value, bool)
+                else "—"
+            )
             last_message = record.get("last_message_at")
             if not isinstance(last_message, str) or not last_message:
                 last_message = "Belum ada data"
@@ -95,25 +99,51 @@ def _format_number_page(payload: dict) -> tuple[str, object | None]:
     return "\n".join(lines).strip(), numbers_pagination(page, last_page)
 
 
-async def _load_number_page(page: int) -> tuple[str, object | None]:
-    client = AugestelClient.from_settings()
+async def _load_number_page(telegram_id: int, page: int) -> tuple[str, object | None]:
+    api_key = await load_api_key_for_user(telegram_id)
+    if api_key is None:
+        raise AugestelAccountNotConnected
+    client = AugestelClient.from_settings(api_key=api_key)
     payload = await client.list_numbers(page=page, per_page=20)
     return _format_number_page(payload)
 
 
-async def _show_numbers(message: Message, page: int = 1) -> None:
+async def _show_numbers(
+    message: Message,
+    page: int = 1,
+    *,
+    telegram_id: int | None = None,
+) -> None:
+    if message.chat.type != ChatType.PRIVATE:
+        await message.answer("Demi keamanan, gunakan My Numbers di chat pribadi bot.")
+        return
     if page < 1:
         await message.answer("Nomor halaman harus minimal 1.")
         return
+
+    requester_id = telegram_id or (message.from_user.id if message.from_user else None)
+    if requester_id is None:
+        await message.answer("Identitas Telegram tidak tersedia.")
+        return
+
     try:
-        text, keyboard = await _load_number_page(page)
-    except AugestelIntegrationDisabled:
+        text, keyboard = await _load_number_page(requester_id, page)
+    except AugestelAccountNotConnected:
         await message.answer(
             "<b>My Numbers belum terhubung.</b>\n"
-            "Isi <code>AUGESTEL_API_KEY</code> pada file <code>.env</code>, pastikan Base URL "
-            "API benar, lalu aktifkan integrasi setelah konfigurasi siap. "
-            "Jangan kirim API key melalui Telegram."
+            "Ketik <code>/connect</code> di chat pribadi lalu kirim API Key. "
+            "Jangan bagikan API Key ke orang lain atau grup."
         )
+        return
+    except SecretStorageError:
+        logger.warning("Could not decrypt API key for Telegram user %s", requester_id)
+        await message.answer(
+            "Key tersimpan tidak dapat dibuka. Pengelola perlu memeriksa konfigurasi enkripsi; "
+            "setelah itu hubungkan ulang dengan /connect."
+        )
+        return
+    except AugestelIntegrationDisabled:
+        await message.answer("Integrasi Augestel sedang dinonaktifkan oleh pengelola bot.")
         return
     except AugestelIntegrationError as exc:
         logger.warning("Augestel My Numbers request failed: %s", str(exc))
@@ -124,13 +154,12 @@ async def _show_numbers(message: Message, page: int = 1) -> None:
         await message.answer("Terjadi kesalahan saat mengambil daftar nomor. Coba lagi nanti.")
         return
 
-    if requester_id is not None:
-        await _audit(
-            requester_id,
-            "list_numbers",
-            "success",
-            f"Fetched My Numbers page {page}; number details are not stored in operation history.",
-        )
+    await _audit(
+        requester_id,
+        "list_numbers",
+        "success",
+        f"Fetched My Numbers page {page}; number details and API key are not stored in history.",
+    )
     await message.answer(text, reply_markup=keyboard)
 
 
@@ -172,23 +201,21 @@ async def numbers_page_callback(query: CallbackQuery) -> None:
     await query.answer()
     if not isinstance(query.message, Message):
         return
+    # Do not reveal account numbers into group chats.
+    if query.message.chat.type != ChatType.PRIVATE:
+        await query.message.answer("Demi keamanan, gunakan My Numbers di chat pribadi bot.")
+        return
     try:
         text, keyboard = await _load_number_page(query.from_user.id, page)
     except AugestelAccountNotConnected:
-        await query.message.answer(
-            "My Numbers belum terhubung. Gunakan /connect di chat pribadi untuk menyambungkan API Key."
-        )
+        await query.message.answer("My Numbers belum terhubung. Gunakan /connect di chat pribadi.")
         return
     except SecretStorageError:
         logger.warning("Could not decrypt API key for Telegram user %s", query.from_user.id)
-        await query.message.answer(
-            "Key tersimpan tidak dapat dibuka. Periksa konfigurasi enkripsi, lalu hubungkan ulang dengan /connect."
-        )
+        await query.message.answer("Key tersimpan tidak dapat dibuka. Periksa konfigurasi enkripsi.")
         return
     except AugestelIntegrationDisabled:
-        await query.message.answer(
-            "Integrasi Augestel sedang dinonaktifkan oleh pengelola bot."
-        )
+        await query.message.answer("Integrasi Augestel sedang dinonaktifkan oleh pengelola bot.")
         return
     except AugestelIntegrationError as exc:
         logger.warning("Augestel My Numbers pagination failed: %s", str(exc))
@@ -199,13 +226,12 @@ async def numbers_page_callback(query: CallbackQuery) -> None:
         await query.message.answer("Terjadi kesalahan saat mengambil halaman nomor.")
         return
 
-    if query.from_user is not None:
-        await _audit(
-            query.from_user.id,
-            "list_numbers",
-            "success",
-            f"Fetched My Numbers page {page}; number details are not stored in operation history.",
-        )
+    await _audit(
+        query.from_user.id,
+        "list_numbers",
+        "success",
+        f"Fetched My Numbers page {page}; number details and API key are not stored in history.",
+    )
     await query.message.edit_text(text, reply_markup=keyboard)
 
 
@@ -220,8 +246,8 @@ async def add_number_command(message: Message) -> None:
             "&lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\n"
             "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\n\n"
             "Ini hanya memvalidasi draft lokal. Nilai ID harus diperoleh dari akun Anda. "
-            "Token CSRF/session tidak boleh dimasukkan. Draft yang valid tetap tidak dikirim "
-            "ke Augestel karena autentikasi integrasi belum tersedia."
+            "API Key tidak boleh dimasukkan ke perintah ini. Draft yang valid tetap belum dikirim "
+            "ke Augestel karena endpoint Add Number API belum tersedia pada dokumentasi."
         )
         return
 
@@ -236,7 +262,7 @@ async def add_number_command(message: Message) -> None:
             message.from_user.id,
             "add_number",
             "draft_prepared_not_sent",
-            "Local draft validated; no request sent because Augestel authentication is not enabled.",
+            "Local draft validated; no request sent because no documented write endpoint is available.",
         )
     await message.answer(
         "<b>Draft Add Number tervalidasi</b>\n"
@@ -244,8 +270,7 @@ async def add_number_command(message: Message) -> None:
         f"Billing term ID: <code>{escape(draft.termination_term_id)}</code>\n"
         f"Jumlah: <code>{draft.count}</code>\n"
         f"Sort type: <code>{escape(draft.sort_type)}</code>\n\n"
-        "<b>Belum dieksekusi.</b> Tidak ada request dikirim ke Augestel. "
-        "Autentikasi yang disetujui dan kontrak request masih perlu dikonfirmasi."
+        "<b>Belum dieksekusi.</b> Tidak ada request dikirim ke Augestel karena endpoint tulis resmi belum tersedia."
     )
 
 
@@ -266,7 +291,7 @@ async def return_all_command(message: Message) -> None:
     await message.answer(
         "<b>⚠️ Return All</b>\n\n"
         "Tindakan ini dapat mengembalikan seluruh nomor pada akun Augestel yang terhubung.\n"
-        "Saat ini integrasi belum diaktifkan, jadi tombol konfirmasi tidak akan mengirim request.",
+        "Endpoint Return All tidak tersedia di API yang didokumentasikan; tidak ada request yang dikirim.",
         reply_markup=confirm_return_all(),
     )
 
@@ -306,41 +331,42 @@ async def cancel_command(message: Message) -> None:
 @router.callback_query(lambda query: query.data == "menu:add")
 async def add_menu(query: CallbackQuery) -> None:
     await query.answer()
-    if query.message:
-        if query.from_user:
-            await _audit(
-                query.from_user.id, "add_number", "blocked_integration_disabled",
-                "No request was sent; Augestel integration is disabled."
-            )
+    if isinstance(query.message, Message):
+        await _audit(
+            query.from_user.id,
+            "add_number",
+            "blocked_integration_disabled",
+            "No request was sent; documented write endpoint is not available.",
+        )
         await _not_enabled(query.message, "Add Number")
 
 
 @router.callback_query(lambda query: query.data == "menu:download")
 async def download_menu(query: CallbackQuery) -> None:
     await query.answer()
-    if query.message:
-        if query.from_user:
-            await _audit(
-                query.from_user.id, "download_numbers", "blocked_integration_disabled",
-                "No request was sent; Augestel integration is disabled."
-            )
+    if isinstance(query.message, Message):
+        await _audit(
+            query.from_user.id,
+            "download_numbers",
+            "blocked_integration_disabled",
+            "No request was sent; documented export endpoint is not available.",
+        )
         await _not_enabled(query.message, "Download Numbers")
 
 
 @router.callback_query(lambda query: query.data == "menu:return_all")
 async def return_all_menu(query: CallbackQuery) -> None:
     await query.answer()
-    if query.message:
-        if query.from_user:
-            await _audit(
-                query.from_user.id,
-                "return_all",
-                "confirmation_requested",
-                "Confirmation requested; no request has been sent.",
-            )
+    if isinstance(query.message, Message):
+        await _audit(
+            query.from_user.id,
+            "return_all",
+            "confirmation_requested",
+            "Confirmation requested; no request has been sent.",
+        )
         await query.message.answer(
             "<b>⚠️ Return All</b>\n\n"
-            "Tindakan ini dapat mengembalikan seluruh nomor. Integrasi masih dinonaktifkan; "
+            "Tindakan ini dapat mengembalikan seluruh nomor. Endpoint Return All belum terdokumentasi; "
             "konfirmasi tidak akan menjalankan request.",
             reply_markup=confirm_return_all(),
         )
@@ -348,18 +374,16 @@ async def return_all_menu(query: CallbackQuery) -> None:
 
 @router.callback_query(lambda query: query.data == "return_all:confirm")
 async def confirm_return_all_callback(query: CallbackQuery) -> None:
-    await query.answer("Integrasi belum diaktifkan.", show_alert=True)
+    await query.answer("Endpoint Return All belum diimplementasikan.", show_alert=True)
     if query.from_user:
         await _audit(
             query.from_user.id,
             "return_all",
-            "blocked_integration_disabled",
-            "User confirmed, but no request was sent because integration is disabled.",
+            "blocked_endpoint_unavailable",
+            "User confirmed, but no request was sent because no documented write endpoint is available.",
         )
     if query.message:
-        await query.message.answer(
-            "Operasi tidak dijalankan. Integrasi Augestel masih dinonaktifkan."
-        )
+        await query.message.answer("Operasi tidak dijalankan. Endpoint Return All belum tersedia.")
 
 
 @router.callback_query(lambda query: query.data == "return_all:cancel")

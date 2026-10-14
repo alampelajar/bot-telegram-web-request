@@ -84,10 +84,10 @@ Compose overrides the local SQLite URL and connects the bot to PostgreSQL. Chang
 
 ## Feature status
 
-My Numbers is implemented through the documented read-only API. Add Number and Return All have custom adapters for the website routes observed in HAR, but these are not documented public API v1 endpoints. They are disabled by default. Set `AUGESTEL_CUSTOM_WRITE_ENABLED=true` only in a test environment after confirming with Augestel that Bearer API-key auth is supported on those routes. If the routes require a web session/CSRF token, the bot will not bypass that protection. A redirect or timeout means the write outcome could be unknown; check `/numbers` and the portal before retrying. Export download remains blocked pending its response contract.
+My Numbers is implemented through the documented read-only API. Add Number and Return All have custom adapters for website routes observed in HAR; these are not documented public API v1 endpoints. They are disabled by default. Set `AUGESTEL_CUSTOM_WRITE_ENABLED=true` only in a test environment after confirming with Augestel that Bearer API-key auth is supported on those routes. The adapter fetches a fresh CSRF token from the live numbers page, and Add Number fetches a fresh `request_token` from termination metadata; it does not replay tokens from HAR or bypass challenges. If the page redirects to login, the adapter stops without sending the write. A redirect or timeout after POST means the write outcome could be unknown; check `/numbers` and the portal before retrying. Export download remains blocked pending its response contract.
 
 ## Add Number and Return All from Telegram
 
-- `/addnumber <termination_id> <termination_term_id> <count> <sort_type>` validates the draft and presents a confirmation button before any POST.
+- `/addnumber <termination_id> <termination_term_id> <count> <sort_type>` expects numeric termination/term IDs and a `sort_type` matching the termination metadata. It validates the draft and presents a confirmation button before any POST.
 - `/returnall` or the **Return All** menu first shows the currently reported number count, then asks for confirmation. If that count changes before confirmation, the bot asks for a fresh confirmation.
 - Cancel buttons clear the pending operation. The bot does not retry a write operation automatically after an uncertain response.

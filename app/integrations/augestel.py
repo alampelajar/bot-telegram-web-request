@@ -451,6 +451,78 @@ class AugestelClient:
             )
         return result
 
+    async def list_terminations(self) -> dict[str, Any]:
+        """Read termination/term options for the connected user using fresh page context.
+
+        The route is observed on the Augestel website, not documented API v1. The result
+        deliberately omits dynamic request_token values from the data returned to callers.
+        """
+        self._ensure_custom_writes_enabled()
+        client, website_base, csrf_token = await self._open_authorized_website_page()
+        try:
+            token = self._ensure_custom_writes_enabled()
+            try:
+                response = await client.get(
+                    f"{website_base}/Switchfy/client/numbers/terminations",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                        "X-CSRF-Token": csrf_token,
+                        "Referer": f"{website_base}/Switchfy/client/numbers",
+                        "Cache-Control": "no-cache, no-store",
+                    },
+                )
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                raise AugestelIntegrationError(
+                    "Could not read current termination metadata from Augestel."
+                ) from exc
+
+            payload = await self._read_website_json(response, purpose="termination metadata")
+            terminations = payload.get("terminations")
+            if payload.get("success") is not True or not isinstance(terminations, list):
+                raise AugestelIntegrationError(
+                    "Augestel did not return the expected termination metadata schema."
+                )
+
+            output: list[dict[str, Any]] = []
+            for item in terminations:
+                if not isinstance(item, dict):
+                    continue
+                ident = item.get("id")
+                name = item.get("name")
+                terms = item.get("terms")
+                if ident is None or not isinstance(name, str) or not isinstance(terms, list):
+                    continue
+                safe_terms: list[dict[str, Any]] = []
+                for term in terms:
+                    if not isinstance(term, dict) or term.get("id") is None:
+                        continue
+                    safe_terms.append(
+                        {
+                            "id": str(term["id"]),
+                            "term": str(term.get("term") or ""),
+                            "a2p_rate": term.get("a2p_rate"),
+                            "is_default": bool(term.get("is_default", False)),
+                        }
+                    )
+                output.append(
+                    {
+                        "id": str(ident),
+                        "name": name[:100],
+                        "country_code": str(item.get("country_code") or "")[:8],
+                        "operator": str(item.get("operator") or "")[:80],
+                        "available_count": item.get("available_count"),
+                        "max_per_request": item.get("max_per_request"),
+                        "number_sort_type": str(item.get("number_sort_type") or "")[:32],
+                        "current_from_termination": item.get("current_from_termination"),
+                        "limit_per_termination": item.get("limit_per_termination"),
+                        "terms": safe_terms,
+                    }
+                )
+            return {"success": True, "terminations": output}
+        finally:
+            await client.aclose()
+
     async def add_numbers(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Submit Add Number using fresh CSRF/request tokens from the live page.
 

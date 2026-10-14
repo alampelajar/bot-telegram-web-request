@@ -2,7 +2,7 @@ import logging
 import re
 from html import escape
 
-from aiogram import F, Router
+from aiogram import Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -153,7 +153,10 @@ async def receive_api_key(message: Message, state: FSMContext) -> None:
         )
         return
 
-    settings = get_settings()
+    if message.from_user is None:
+        await message.answer("Identitas Telegram tidak tersedia. Tidak ada API Key yang disimpan.")
+        return
+
     try:
         client = AugestelClient.from_settings(api_key=SecretStr(api_key))
         # The official, read-only endpoint validates the key without changing account data.

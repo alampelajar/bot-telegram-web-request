@@ -194,3 +194,17 @@ Use only an account you control, double-check the account and count before confi
 ### Termination discovery command
 
 The bot exposes `/terminations` for private-chat users with a connected API key. It fetches fresh website page/metadata through the guarded custom-write adapter and displays the termination numeric ID, current available count, max-per-request, allowed `number_sort_type`, and numeric term IDs. It intentionally omits `request_token` from its response. Users should use these returned IDs/allowed sort value when invoking `/addnumber`. This discovery route is gated by both integration flags because it calls an observed website route, not the documented public API.
+
+
+## Live test finding: API key rejected on website route (2026-10-14)
+
+The user tested `/terminations` against their account and reported:
+
+```text
+HTTP 403 — Augestel did not authorize the website page with this API key.
+No write request was sent.
+```
+
+This confirms that the documented Bearer API key currently works for the public API v1 My Numbers route but is not accepted for `GET /Switchfy/client/numbers` in this integration attempt. Therefore the current custom website adapter cannot reach fresh CSRF or termination metadata using the user-supplied API key. No Add Number or Return All POST is sent because the adapter stops at the failed GET.
+
+Keep `AUGESTEL_CUSTOM_WRITE_ENABLED=false` until Augestel confirms a supported authentication mechanism for termination metadata, Add Number, and Return All (for example, official write endpoints or explicit permission for this API key to access the website routes). Do not try to resolve this by replaying cookies/tokens from HAR or bypassing challenge protections. The API-only connection flow and website-session authentication are separate and cannot be assumed interchangeable.

@@ -88,6 +88,7 @@ My Numbers is implemented through the documented read-only API. Add Number and R
 
 ## Add Number and Return All from Telegram
 
+- `/terminations` lists current numeric termination/term IDs, available quantity, limit per request, and `sort_type` for Add Number. It deliberately does not display the dynamic `request_token`.
 - `/addnumber <termination_id> <termination_term_id> <count> <sort_type>` expects numeric termination/term IDs and a `sort_type` matching the termination metadata. It validates the draft and presents a confirmation button before any POST.
 - `/returnall` or the **Return All** menu first shows the currently reported number count, then asks for confirmation. If that count changes before confirmation, the bot asks for a fresh confirmation.
 - Cancel buttons clear the pending operation. The bot does not retry a write operation automatically after an uncertain response.

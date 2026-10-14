@@ -1,0 +1,34 @@
+services:
+  bot:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://awc:${POSTGRES_PASSWORD:-change-me-before-deploy}@postgres:5432/automatic_web_controller
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - exports:/app/tmp/exports
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: automatic_web_controller
+      POSTGRES_USER: awc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-before-deploy}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U awc -d automatic_web_controller"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  exports:

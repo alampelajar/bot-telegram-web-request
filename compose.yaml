@@ -3,6 +3,8 @@ services:
     build: .
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://awc:${POSTGRES_PASSWORD:-change-me-before-deploy}@postgres:5432/automatic_web_controller
     depends_on:
       postgres:
         condition: service_healthy

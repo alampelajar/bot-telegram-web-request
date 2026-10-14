@@ -57,3 +57,24 @@ The second capture contains 10 requests, but it still does **not** include a log
 - Two POST requests were sent to challenge-related paths, `/cap/start` and `/cap/puzzle`. These appear to be part of a challenge flow, not a login form submission. Their tokens, image/challenge payloads, and proof values are deliberately omitted from this documentation.
 
 There is no captured request that conclusively establishes how a username/password login is submitted or how an authenticated session is created. Do not implement or attempt to bypass the challenge flow based on this HAR. Use an Augestel-supported authentication mechanism or obtain guidance from the provider. If further capture is needed, capture from a fresh unauthenticated login page and share only a redacted screenshot of request metadata—not a raw HAR containing challenge tokens or session data.
+
+
+## Findings from `augestel.com.login(2).har` (2026-10-14)
+
+The latest capture contains 56 requests and **does** include the normal login form submission:
+
+| Step | Method | Path | Status | Observation |
+|---|---|---|---:|---|
+| Login submission | POST | `/Switchfy/login` | 302 | Form body contains fields named `_token`, `email`, and `password`; field values are intentionally omitted. Redirects to `/Switchfy`. |
+| Landing redirect | GET | `/Switchfy` | 302 | Redirects to `/Switchfy/test/live-sms`. |
+| Live SMS page | GET | `/Switchfy/test/live-sms` | 200 | Page content loads successfully. |
+| Live totals | GET | `/Switchfy/test/live-totals` | 200 | JSON response loaded. |
+| Live history | GET | `/Switchfy/test/live-history` | 200 | JSON response loaded. |
+| Termination metadata | GET | `/Switchfy/test/termination-meta` | 200 | JSON response loaded. |
+| Live SMS stream | GET | `/live-sms` | 101 | WebSocket upgrade succeeded. |
+
+The redirects and subsequent successful page/API loads are consistent with a successful interactive login. However, the HAR does not include `Cookie` or `Set-Cookie` headers, so it does not establish how session cookies are issued or persisted; this may reflect how the capture was exported. Some read-only API requests include an `X-CSRF-Token` header, but its source, lifetime, and scope remain unverified.
+
+**Security note:** this HAR includes the login request body with an email/password form. Do not commit or forward the raw HAR, and never copy its credential, CSRF, or session values into source code, bot messages, logs, or documentation. If the HAR was shared or stored somewhere not trusted, change the account password and revoke active sessions where Augestel provides that option.
+
+This capture does not show Add Number, Export, or Return All being triggered. The login path is now observed, but it is still a website form route—not confirmation of a supported public API or permission to automate password-based login. Before implementing authentication, confirm Augestel's approved integration method and session-handling rules. Do not bypass challenge/anti-abuse controls or replay sensitive values from HAR.

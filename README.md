@@ -68,7 +68,7 @@ Use the business fields observed in the website request:
 /addnumber <termination_id> <termination_term_id> <count> <sort_type>
 ```
 
-The bot validates them and presents a confirmation button. Example IDs are illustrative only; use real values from the account. Confirm only once. If the result is unknown, check `/numbers` before attempting another add.
+The IDs must be numeric values from Augestel, and `sort_type` must match the current `number_sort_type` for that termination; example values are illustrative only. The bot fetches fresh page CSRF data and fresh `request_token` from the termination metadata, validates the term/count limits, and then presents a confirmation button. Confirm only once. If the result is unknown, check `/numbers` before attempting another add.
 
 ## Return All
 

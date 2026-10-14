@@ -525,10 +525,10 @@ async def add_menu(query: CallbackQuery) -> None:
             await query.message.answer("Demi keamanan, Add Number hanya tersedia di chat pribadi bot.")
             return
         await query.message.answer(
-            "<b>➕ Add Number</b>\\n\\n"
-            "Kirim perintah dengan format:\\n"
-            "<code>/addnumber &lt;termination_id&gt; &lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\\n"
-            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\\n\\n"
+            "<b>➕ Add Number</b>\n\n"
+            "Kirim perintah dengan format:\n"
+            "<code>/addnumber &lt;termination_id&gt; &lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\n"
+            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\n\n"
             "Nilai ID dan opsi sort harus sesuai data akun Augestel. Bot akan meminta konfirmasi sebelum mengirim request."
         )
 

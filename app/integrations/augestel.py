@@ -391,6 +391,7 @@ class AugestelClient:
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/json",
+                    "Origin": website_base,
                     "Referer": f"{website_base}/Switchfy/client/numbers",
                     "X-CSRF-Token": csrf_token,
                 },

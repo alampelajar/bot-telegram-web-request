@@ -22,6 +22,9 @@ async def test_api_key_is_encrypted_scoped_to_telegram_user_and_removed_on_disco
         _env_file=None,
         api_key_encryption_key=SecretStr(Fernet.generate_key().decode("ascii")),
     )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
     monkeypatch.setattr(secret_store, "get_settings", lambda: settings)
     monkeypatch.setattr(account_service, "create_session_factory", lambda: factory)
 

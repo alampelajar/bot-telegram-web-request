@@ -258,15 +258,16 @@ async def add_number_command(message: Message, state: FSMContext) -> None:
     if message.chat.type != ChatType.PRIVATE:
         await message.answer("Demi keamanan, Add Number hanya tersedia di chat pribadi bot.")
         return
+    await state.clear()
 
     raw = message.text or ""
     _, _, arguments = raw.partition(" ")
     if not arguments.strip():
         await message.answer(
-            "<b>➕ Add Number</b>\\n\\n"
+            "<b>➕ Add Number</b>\n\n"
             "Format: <code>/addnumber &lt;termination_id&gt; "
-            "&lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\\n"
-            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\\n\\n"
+            "&lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\n"
+            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\n\n"
             "ID harus berasal dari informasi akun/terminasi Augestel kamu. Nilai contoh di atas "
             "hanya ilustrasi. Setelah validasi, bot akan menampilkan ringkasan dan meminta konfirmasi. "
             "Endpoint website yang teramati belum menjadi API publik terdokumentasi, sehingga eksekusi "
@@ -309,11 +310,11 @@ async def add_number_command(message: Message, state: FSMContext) -> None:
         "Validated Add Number draft; no request has been sent.",
         )
     await message.answer(
-        "<b>Konfirmasi Add Number</b>\\n\\n"
-        f"Termination ID: <code>{escape(draft.termination_id)}</code>\\n"
-        f"Term ID: <code>{escape(draft.termination_term_id)}</code>\\n"
-        f"Jumlah: <b>{draft.count}</b>\\n"
-        f"Sort type: <code>{escape(draft.sort_type)}</code>\\n\\n"
+        "<b>Konfirmasi Add Number</b>\n\n"
+        f"Termination ID: <code>{escape(draft.termination_id)}</code>\n"
+        f"Term ID: <code>{escape(draft.termination_term_id)}</code>\n"
+        f"Jumlah: <b>{draft.count}</b>\n"
+        f"Sort type: <code>{escape(draft.sort_type)}</code>\n\n"
         "Pastikan data benar sebelum melanjutkan. Jika rute website membutuhkan CSRF/browser session, "
         "bot akan berhenti tanpa melewati perlindungan tersebut.",
         reply_markup=confirm_add_number(),
@@ -428,6 +429,7 @@ async def _show_return_all_preview(
     if message.chat.type != ChatType.PRIVATE:
         await message.answer("Demi keamanan, Return All hanya tersedia di chat pribadi bot.")
         return
+    await state.clear()
     user_id = telegram_id or (message.from_user.id if message.from_user else None)
     if user_id is None:
         await message.answer("Identitas Telegram tidak tersedia.")
@@ -467,10 +469,10 @@ async def _show_return_all_preview(
         f"Preview showed {total} assigned numbers; no request has been sent.",
     )
     await message.answer(
-        "<b>⚠️ Konfirmasi Return All</b>\\n\\n"
-        f"API saat ini melaporkan <b>{total}</b> nomor pada akun yang terhubung.\\n"
+        "<b>⚠️ Konfirmasi Return All</b>\n\n"
+        f"API saat ini melaporkan <b>{total}</b> nomor pada akun yang terhubung.\n"
         "Jika diteruskan, tindakan ini akan mencoba mengembalikan semua nomor pada akun tersebut. "
-        "Tindakan tidak dapat dibatalkan melalui bot.\\n\\n"
+        "Tindakan tidak dapat dibatalkan melalui bot.\n\n"
         "Rute Return All berasal dari pengamatan alur website, bukan dokumentasi API publik. "
         "Jika server memerlukan sesi browser/CSRF, bot tidak akan melewatinya. Jika hasil request tidak pasti, "
         "bot tidak akan mengulang otomatis.",
@@ -519,13 +521,16 @@ async def cancel_command(message: Message) -> None:
 async def add_menu(query: CallbackQuery) -> None:
     await query.answer()
     if isinstance(query.message, Message):
-        await _audit(
-            query.from_user.id,
-            "add_number",
-            "blocked_integration_disabled",
-            "No request was sent; documented write endpoint is not available.",
+        if query.message.chat.type != ChatType.PRIVATE:
+            await query.message.answer("Demi keamanan, Add Number hanya tersedia di chat pribadi bot.")
+            return
+        await query.message.answer(
+            "<b>➕ Add Number</b>\\n\\n"
+            "Kirim perintah dengan format:\\n"
+            "<code>/addnumber &lt;termination_id&gt; &lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>\\n"
+            "Contoh format: <code>/addnumber term_123 term_456 5 asc</code>\\n\\n"
+            "Nilai ID dan opsi sort harus sesuai data akun Augestel. Bot akan meminta konfirmasi sebelum mengirim request."
         )
-        await _not_enabled(query.message, "Add Number")
 
 
 @router.callback_query(lambda query: query.data == "menu:download")

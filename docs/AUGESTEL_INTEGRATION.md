@@ -20,13 +20,13 @@ Authorization: Bearer YOUR_API_KEY
 
 Configuration added to the application:
 - `AUGESTEL_API_KEY`: stored as a Pydantic `SecretStr`, read from local environment configuration.
-- `AUGESTEL_API_BASE_URL`: must be copied from the provider's API documentation; it is intentionally blank by default rather than guessed.
+- `AUGESTEL_API_BASE_URL`: defaults to the Base URL documented by the user, `https://augestel.com/api/v1/iprn`.
 - `AUGESTEL_INTEGRATION_ENABLED`: remains `false` by default.
 
-The integration client now has a read-only `get_json(path)` foundation that uses the Bearer header, validates HTTPS and the Augestel host, rejects redirects, and avoids printing response bodies or credentials in errors. It does not yet call any real endpoint because the documented Base URL and endpoint paths have not been supplied.
+The integration client now has a read-only `get_json(path)` foundation that uses the Bearer header, validates HTTPS and the Augestel host, rejects redirects, and avoids printing response bodies or credentials in errors. The documented Base URL is configured, but no live endpoint has been called because resource endpoint paths and schemas have not yet been supplied.
 
 Before implementing feature operations:
-1. Copy the exact API Base URL and endpoint paths from the official docs.
+1. The API Base URL supplied from the documentation is `https://augestel.com/api/v1/iprn`; copy the endpoint paths and schemas from the official docs.
 2. Verify documented request parameters and response schemas with read-only calls first.
 3. Keep the API key in local `.env` or a secret manager; never in chat, source code, logs, or the repository.
 4. Require explicit confirmation for write actions such as Add Number and Return All.
@@ -108,16 +108,16 @@ A valid draft is recorded as `draft_prepared_not_sent`. **No network request is 
 
 The user-provided Authentication section documents Bearer token authentication: `Authorization: Bearer YOUR_API_KEY`. The application configuration and a read-only JSON GET helper have been added, but the API key itself must only be stored in the user's local `.env` or deployment secret store.
 
-Before enabling integration, set `AUGESTEL_API_BASE_URL` to the exact Base URL listed in Augestel API documentation and verify the specific endpoint paths. Do not use `/Switchfy/client/numbers/request`, `/Switchfy/client/numbers/export`, or `/Switchfy/client/numbers/bulk-return-all` in the API client merely because they were seen in browser HAR files.
+The documented Base URL is now configured as `https://augestel.com/api/v1/iprn`. Before enabling integration, verify the specific resource endpoint paths and request/response schemas. Do not use `/Switchfy/client/numbers/request`, `/Switchfy/client/numbers/export`, or `/Switchfy/client/numbers/bulk-return-all` in the API client merely because they were seen in browser HAR files.
 
 Example local configuration (do not commit `.env`):
 
 ```dotenv
-AUGESTEL_API_BASE_URL=
-AUGESTEL_API_KEY=
+AUGESTEL_API_BASE_URL=https://augestel.com/api/v1/iprn
+AUGESTEL_API_KEY=put_regenerated_key_here_locally
 AUGESTEL_INTEGRATION_ENABLED=false
 ```
 
-The blank API Base URL is intentional because its exact value has not yet been supplied. When a documented read-only endpoint is confirmed, it can be called via `AugestelClient.get_json()`. Add Number, export download, and Return All remain guarded placeholders until their API endpoints, payloads, scopes, and response formats are verified.
+The API Base URL is taken directly from the documentation supplied by the user. When a documented read-only endpoint is confirmed, it can be called via `AugestelClient.get_json()`. Add Number, export download, and Return All remain guarded placeholders until their API endpoints, payloads, scopes, and response formats are verified.
 
 **Key rotation:** the earlier screenshot showed an API key visibly. Treat that key as exposed and regenerate it in the Augestel dashboard before using any key locally.

@@ -9,10 +9,10 @@ from app.services.add_number_draft import (
 
 def test_parse_valid_add_number_draft() -> None:
     draft = parse_add_number_draft("12345 123456 5 random")
-    assert draft.termination_id == "term_123"
-    assert draft.termination_term_id == "term-456"
+    assert draft.termination_id == "12345"
+    assert draft.termination_term_id == "123456"
     assert draft.count == 5
-    assert draft.sort_type == "asc"
+    assert draft.sort_type == "random"
 
 
 @pytest.mark.parametrize(

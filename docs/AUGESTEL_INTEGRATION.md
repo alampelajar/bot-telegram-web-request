@@ -78,3 +78,16 @@ The redirects and subsequent successful page/API loads are consistent with a suc
 **Security note:** this HAR includes the login request body with an email/password form. Do not commit or forward the raw HAR, and never copy its credential, CSRF, or session values into source code, bot messages, logs, or documentation. If the HAR was shared or stored somewhere not trusted, change the account password and revoke active sessions where Augestel provides that option.
 
 This capture does not show Add Number, Export, or Return All being triggered. The login path is now observed, but it is still a website form route—not confirmation of a supported public API or permission to automate password-based login. Before implementing authentication, confirm Augestel's approved integration method and session-handling rules. Do not bypass challenge/anti-abuse controls or replay sensitive values from HAR.
+
+
+## Add Number draft validation (2026-10-14)
+
+The bot now accepts a local draft command:
+
+```text
+/addnumber <termination_id> <termination_term_id> <count> <sort_type>
+```
+
+The four business fields are based on the observed browser form submission. The command validates identifiers, positive count, and safe sort-type syntax; a conservative local draft ceiling of 1,000 prevents accidental oversized drafts. This ceiling is an application safeguard, not an Augestel limit.
+
+A valid draft is recorded as `draft_prepared_not_sent`. **No network request is sent.** The helper does not accept `_token`, `request_token`, passwords, cookies, or session values. Those fields must never be copied from HAR or supplied by Telegram users. Actual submission remains disabled until provider-approved authentication and endpoint semantics are verified.

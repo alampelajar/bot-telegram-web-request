@@ -47,6 +47,7 @@ Put its output into `API_KEY_ENCRYPTION_KEY` in `.env`, then set:
 ```dotenv
 AUGESTEL_API_BASE_URL=https://augestel.com/api/v1/iprn
 AUGESTEL_INTEGRATION_ENABLED=true
+AUGESTEL_CUSTOM_WRITE_ENABLED=false
 ```
 
 Do not put a user's Augestel API key in the server's `.env`. Each Telegram user provides their own API key via the bot's private chat. Keep `API_KEY_ENCRYPTION_KEY` backed up and secret; changing or losing it makes stored API keys unrecoverable.
@@ -83,4 +84,10 @@ Compose overrides the local SQLite URL and connects the bot to PostgreSQL. Chang
 
 ## Feature status
 
-My Numbers is implemented as a read-only API integration. Add Number, export download, and Return All remain blocked until their official API endpoints/contracts are available; a local Add Number draft does not execute a request.
+My Numbers is implemented through the documented read-only API. Add Number and Return All have custom adapters for the website routes observed in HAR, but these are not documented public API v1 endpoints. They are disabled by default. Set `AUGESTEL_CUSTOM_WRITE_ENABLED=true` only in a test environment after confirming with Augestel that Bearer API-key auth is supported on those routes. If the routes require a web session/CSRF token, the bot will not bypass that protection. A redirect or timeout means the write outcome could be unknown; check `/numbers` and the portal before retrying. Export download remains blocked pending its response contract.
+
+## Add Number and Return All from Telegram
+
+- `/addnumber <termination_id> <termination_term_id> <count> <sort_type>` validates the draft and presents a confirmation button before any POST.
+- `/returnall` or the **Return All** menu first shows the currently reported number count, then asks for confirmation. If that count changes before confirmation, the bot asks for a fresh confirmation.
+- Cancel buttons clear the pending operation. The bot does not retry a write operation automatically after an uncertain response.

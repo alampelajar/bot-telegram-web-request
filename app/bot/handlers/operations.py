@@ -253,6 +253,100 @@ async def numbers_page_callback(query: CallbackQuery) -> None:
     await query.message.edit_text(text, reply_markup=keyboard)
 
 
+@router.message(Command("terminations"))
+async def terminations_command(message: Message) -> None:
+    if message.chat.type != ChatType.PRIVATE:
+        await message.answer("Demi keamanan, daftar termination hanya tersedia di chat pribadi bot.")
+        return
+    if message.from_user is None:
+        await message.answer("Identitas Telegram tidak tersedia.")
+        return
+    try:
+        client = await _connected_client(message.from_user.id)
+        payload = await client.list_terminations()
+    except AugestelAccountNotConnected:
+        await message.answer("Hubungkan akun terlebih dahulu dengan <code>/connect</code> di chat pribadi.")
+        return
+    except SecretStorageError:
+        await message.answer("API Key tersimpan tidak bisa dibuka. Hubungi pengelola bot.")
+        return
+    except AugestelIntegrationDisabled as exc:
+        await message.answer(escape(str(exc)))
+        return
+    except AugestelIntegrationError as exc:
+        logger.warning("Augestel termination metadata request failed: %s", str(exc))
+        await message.answer(
+            "Tidak dapat membaca daftar termination dari rute website. "
+            f"{escape(str(exc))}"
+        )
+        return
+    except Exception as exc:
+        logger.error(
+            "Unexpected termination metadata error for Telegram user %s (%s)",
+            message.from_user.id,
+            type(exc).__name__,
+        )
+        await message.answer("Terjadi kesalahan saat membaca daftar termination.")
+        return
+
+    items = payload.get("terminations", [])
+    if not items:
+        await message.answer("Augestel tidak mengembalikan pilihan termination untuk akun ini.")
+        return
+
+    lines = [
+        "<b>Daftar termination Augestel</b>",
+        "Gunakan ID di bawah untuk perintah <code>/addnumber</code>.",
+        "Nilai <code>sort_type</code> harus persis sesuai metadata.",
+        "",
+    ]
+    truncated = False
+    for item in items:
+        ident = escape(str(item.get("id", "")))
+        name = escape(str(item.get("name", "Unknown")))
+        available = item.get("available_count")
+        max_per_request = item.get("max_per_request")
+        sort_type = escape(str(item.get("number_sort_type") or "—"))
+        lines.append(
+            f"<b>{name}</b> · ID <code>{ident}</code>\n"
+            f"Operator: {escape(str(item.get('operator') or '—'))} · "
+            f"Country: {escape(str(item.get('country_code') or '—'))}\n"
+            f"Tersedia: <code>{available if isinstance(available, int) else '—'}</code> · "
+            f"Batas/request: <code>{max_per_request if isinstance(max_per_request, int) else '—'}</code>\n"
+            f"sort_type: <code>{sort_type}</code>"
+        )
+        for term in item.get("terms", [])[:10]:
+            term_id = escape(str(term.get("id", "")))
+            term_name = escape(str(term.get("term") or "—"))
+            rate = term.get("a2p_rate")
+            if isinstance(rate, (int, float)) and not isinstance(rate, bool):
+                rate_text = f"{rate:.4f}"
+            else:
+                rate_text = "—"
+            default_label = " (default)" if term.get("is_default") else ""
+            lines.append(
+                f"  • Term ID <code>{term_id}</code> · {term_name} · "
+                f"A2P <code>{rate_text}</code>{default_label}"
+            )
+        lines.append("")
+        if len("\\n".join(lines)) > 3400:
+            truncated = True
+            lines = lines[:-1]
+            break
+
+    if truncated:
+        lines.append("Daftar dipotong agar muat di Telegram. Pilih ID yang sudah tampil.")
+    lines.extend(
+        [
+            "",
+            "Format:",
+            "<code>/addnumber &lt;termination_id&gt; &lt;termination_term_id&gt; &lt;count&gt; &lt;sort_type&gt;</code>",
+            "Contoh format: <code>/addnumber 12345 123456 5 random</code> (nilai contoh saja).",
+        ]
+    )
+    await message.answer("\\n".join(lines))
+
+
 @router.message(Command("addnumber"))
 async def add_number_command(message: Message, state: FSMContext) -> None:
     if message.chat.type != ChatType.PRIVATE:
